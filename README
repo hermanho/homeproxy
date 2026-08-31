@@ -1,5 +1,179 @@
-TODO:
-- Subscription page slow response with a large number of nodes
-- Refactor nft rules
-- Move ACL settings to a dedicated page
-- Any other improvements
+# HomeProxy fork
+
+This repository is a personal fork of
+[ImmortalWrt HomeProxy](https://github.com/immortalwrt/homeproxy). It keeps the
+upstream LuCI application and adds a routing fix for custom domain rules, plus
+an APK-only CI output and trusted package feed for apk-based OpenWrt systems.
+The upstream OpenWrt package Makefile remains available; only this fork's
+standalone GitHub workflow is APK-only.
+
+The fork has been tested with OpenWrt 25.12, `apk-tools` 3.0.5 and sing-box
+1.12.25. The HomeProxy package itself is `noarch`; its runtime dependencies are
+still supplied by the configured OpenWrt or ImmortalWrt repositories.
+
+## Differences from upstream
+
+### Reverse DNS mapping for custom routing
+
+Upstream HomeProxy can route a DNS request through a selected outbound while a
+subsequent connection to the resolved IP address falls through to the default
+route. This is visible with rules such as `dns_rule_outside_gb`: DNS identifies
+the domain correctly, but an application that connects using only the returned
+IP address may bypass the intended VPN route.
+
+This fork adds **Reverse DNS mapping** under **HomeProxy → DNS Settings**. When
+enabled in custom routing mode, sing-box records the domain-to-IP association
+from a DNS answer and can attach that domain to a later IP-only connection. The
+generated configuration then:
+
+1. enables `dns.reverse_mapping`;
+2. evaluates the custom route rules using the reverse-mapped domain;
+3. performs a non-final route-level protocol sniff when no custom route rule
+   has matched;
+4. evaluates the custom route rules again using any domain discovered by
+   sniffing.
+
+Inbound legacy sniffing is disabled only while the Reverse DNS mapping option
+is active in custom routing mode. This avoids an empty TLS SNI overwriting a
+domain recovered from DNS, while retaining SNI and HTTP Host routing for
+connections that have no reverse-DNS entry.
+
+The option defaults to disabled, preserving upstream behaviour until it is
+explicitly enabled.
+
+### Signed APK feed
+
+GitHub Actions builds an APKv3 package and, for pushes to `master` or published
+releases, signs both the package and its `packages.adb` index. The signed feed is
+published with GitHub Pages:
+
+```text
+https://hermanho.github.io/homeproxy/packages.adb
+```
+
+Pull requests and the `dev` branch produce unsigned test artifacts and never
+receive the production signing secret. Production signing is isolated in the
+`feed-production` GitHub Environment. The private signing key is not stored in
+this repository.
+
+### ImmortalWrt-style package versions
+
+APK versions use the same date/revision shape as LuCI packages built by
+ImmortalWrt:
+
+```text
+YY.JJJ.SSSSS~COMMIT
+```
+
+For example, `26.236.50544~cb5d434` represents year 2026, UTC day 236,
+50,544 seconds after UTC midnight, and Git commit `cb5d434`. The timestamp and
+hash come from the latest commit affecting the packaged sources, including the
+translations bundled by this fork. The tracked paths are `htdocs/`, `root/`,
+`po/`, `Makefile` and `.github/build-pkg.sh`. Rebuilding the same clean commit
+therefore keeps the same package version. A local build from a dirty worktree
+can contain uncommitted changes without changing this version; commit all
+package changes before distributing a build.
+
+## Install from the trusted feed
+
+The public signing key is intentionally public. Its SHA-256 fingerprint is:
+
+```text
+fb625db9f36e116cc3b873e0ebe2e1e79d583b1d8863ffeeb65e76a7d32b751d
+```
+
+The initial trust decision still depends on trusting this repository. For a
+stronger bootstrap, record or verify the fingerprint through an independent
+channel before installing the key.
+
+Run the following as `root` on the router. It checks required commands, enforces
+the fingerprint and refuses to replace a different key with the same filename:
+
+```sh
+set -eu
+
+for cmd in apk awk chmod cp grep mkdir mktemp rm sha256sum touch wget; do
+  command -v "$cmd" >/dev/null || {
+    echo "Missing required command: $cmd" >&2
+    exit 1
+  }
+done
+
+EXPECTED_KEY_SHA256='fb625db9f36e116cc3b873e0ebe2e1e79d583b1d8863ffeeb65e76a7d32b751d'
+KEY_FILE='/etc/apk/keys/homeproxy-feed.pem'
+KEY_DOWNLOAD="$(mktemp /tmp/homeproxy-feed.XXXXXX)"
+trap 'rm -f "$KEY_DOWNLOAD"' EXIT
+
+wget -O "$KEY_DOWNLOAD" \
+  https://hermanho.github.io/homeproxy/homeproxy-feed.pem
+
+DOWNLOADED_KEY_SHA256="$(sha256sum "$KEY_DOWNLOAD" | awk '{print $1}')"
+[ "$DOWNLOADED_KEY_SHA256" = "$EXPECTED_KEY_SHA256" ] || {
+  echo "HomeProxy feed key fingerprint mismatch" >&2
+  exit 1
+}
+
+if [ -e "$KEY_FILE" ]; then
+  INSTALLED_KEY_SHA256="$(sha256sum "$KEY_FILE" | awk '{print $1}')"
+  [ "$INSTALLED_KEY_SHA256" = "$EXPECTED_KEY_SHA256" ] || {
+    echo "Refusing to overwrite a different $KEY_FILE" >&2
+    exit 1
+  }
+fi
+
+mkdir -p /etc/apk/keys /etc/apk/repositories.d
+cp "$KEY_DOWNLOAD" "$KEY_FILE"
+chmod 0644 "$KEY_FILE"
+touch /etc/apk/repositories.d/customfeeds.list
+
+FEED='https://hermanho.github.io/homeproxy/packages.adb'
+grep -qxF "$FEED" /etc/apk/repositories.d/customfeeds.list || \
+  echo "$FEED" >> /etc/apk/repositories.d/customfeeds.list
+
+apk update
+apk policy luci-app-homeproxy
+apk add luci-app-homeproxy
+```
+
+Do not use `--allow-untrusted`. If signature verification fails, stop and check
+the downloaded public-key fingerprint and feed URL rather than bypassing
+verification.
+
+To install future builds:
+
+```sh
+apk update
+apk upgrade luci-app-homeproxy
+```
+
+## Build an APK locally
+
+Clone the repository with full Git history and run the build from its root. On
+a Linux build host, this requires Bash, Git, APKv3 `apk`, `fakeroot`, `po2lmo`,
+GNU coreutils and GNU find:
+
+```sh
+git clone https://github.com/hermanho/homeproxy.git
+cd homeproxy
+fakeroot bash .github/build-pkg.sh apk
+```
+
+The APK is written to `.github/` as:
+
+```text
+luci-app-homeproxy-YY.JJJ.SSSSS~COMMIT.apk
+```
+
+Local builds are unsigned unless they are subsequently signed with the private
+feed key. The GitHub Actions workflow is the supported path for producing and
+publishing trusted packages. Use a clean, committed worktree for any package
+that will be distributed.
+
+## Development notes
+
+The following upstream-oriented work remains open:
+
+- Improve subscription-page response time with a large number of nodes.
+- Refactor nftables rules.
+- Move ACL settings to a dedicated page.
+- Continue tracking upstream HomeProxy and sing-box configuration changes.

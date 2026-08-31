@@ -1,0 +1,229 @@
+name: Build and publish HomeProxy APK feed
+
+on:
+  push:
+    branches:
+      - 'master'
+      - 'dev'
+    paths:
+      - 'htdocs/**'
+      - 'po/**'
+      - 'root/**'
+      - 'Makefile'
+      - '.github/**'
+      - '!.github/ISSUE_TEMPLATE/**'
+
+  pull_request:
+    branches:
+      - 'master'
+      - 'dev'
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - 'htdocs/**'
+      - 'po/**'
+      - 'root/**'
+      - 'Makefile'
+      - '.github/**'
+      - '!.github/ISSUE_TEMPLATE/**'
+
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+env:
+  APK_TOOLS_REF: 'b5a31c0d865342ad80be10d68f1bb3d3ad9b0866'
+  BUILD_ARTIFACT_NAME: homeproxy-feed-build-${{ github.run_id }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source tree
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout apk
+        uses: actions/checkout@v6
+        with:
+          repository: 'alpinelinux/apk-tools'
+          path: 'apk-tools'
+          fetch-depth: 0
+          ref: ${{ env.APK_TOOLS_REF }}
+
+      - name: Checkout po2lmo
+        uses: actions/checkout@v6
+        with:
+          repository: 'openwrt/luci'
+          path: 'po2lmo'
+          sparse-checkout: 'modules/luci-base/src'
+
+      - name: Setup dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E rm -rf /var/lib/man-db/auto-update
+          sudo -E apt-get update -qq
+          sudo -E apt-get install -y build-essential fakeroot libssl-dev lua5.1 meson ninja-build
+
+          pushd apk-tools
+          meson setup build \
+            -Db_lto=true \
+            -Dcompressed-help=false \
+            -Ddocs=disabled \
+            -Dhelp=enabled \
+            -Dlua_version=5.1 \
+            -Ddefault_library=static \
+            -Durl_backend=wget \
+            -Dzstd=false \
+            -Dpython=disabled \
+            -Dtests=disabled \
+            -Dcrypto_backend=openssl
+          ninja -C build
+          sudo -E meson install -C build --strip
+          popd
+
+          pushd po2lmo/modules/luci-base/src
+          make po2lmo
+          sudo -E install -m0755 -s po2lmo /usr/local/bin/po2lmo
+          popd
+
+      - name: Build APK file
+        run: |
+          mkdir -p ci-output/feed
+          pushd .github
+          fakeroot bash build-pkg.sh apk
+          mv luci-app-homeproxy-*.apk ../ci-output/feed/
+          popd
+          cp /usr/local/bin/apk ci-output/apk
+          cp .github/keys/homeproxy-feed.pub.pem ci-output/feed/homeproxy-feed.pem
+
+      - name: Upload feed build bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.BUILD_ARTIFACT_NAME }}
+          path: ci-output/
+          if-no-files-found: error
+
+      - name: Upload unsigned APK for test builds
+        uses: actions/upload-artifact@v7
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/dev'
+        with:
+          name: unsigned-${{ github.sha }}.apk
+          path: ci-output/feed/luci-app-homeproxy-*.apk
+          archive: false
+          if-no-files-found: error
+
+  publish:
+    name: Sign and publish feed
+    needs: build
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment: feed-production
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download feed build bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.BUILD_ARTIFACT_NAME }}
+          path: ci-output
+
+      - name: Sign APK and repository index
+        env:
+          APK_SIGNING_KEY_PEM: ${{ secrets.APK_SIGNING_KEY_PEM }}
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          test -n "$APK_SIGNING_KEY_PEM"
+          chmod 0755 ci-output/apk
+
+          umask 077
+          signing_key="$RUNNER_TEMP/homeproxy-feed.pem"
+          derived_public_key="$RUNNER_TEMP/homeproxy-feed.pub.pem"
+          trusted_keys="$RUNNER_TEMP/homeproxy-feed-keys"
+          printf '%s' "$APK_SIGNING_KEY_PEM" > "$signing_key"
+          openssl ec -in "$signing_key" -pubout -out "$derived_public_key"
+          cmp "$derived_public_key" ci-output/feed/homeproxy-feed.pem
+          mkdir -p "$trusted_keys"
+          cp ci-output/feed/homeproxy-feed.pem "$trusted_keys/"
+
+          pushd ci-output/feed
+          for package in ./*.apk; do
+            ../apk adbsign --reset-signatures --sign-key "$signing_key" "$package"
+          done
+          ../apk mkndx \
+            --allow-untrusted \
+            --sign-key "$signing_key" \
+            --output packages.adb \
+            ./*.apk
+          ../apk --keys-dir "$trusted_keys" verify ./*.apk packages.adb
+          ../apk adbdump --format json packages.adb > index.json
+          sha256sum ./*.apk packages.adb homeproxy-feed.pem > SHA256SUMS
+
+          package_name="$(basename "$(find . -maxdepth 1 -name 'luci-app-homeproxy-*.apk' -print -quit)")"
+          cat > index.html <<EOF
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>HomeProxy APK feed</title>
+          <h1>HomeProxy APK feed</h1>
+          <ul>
+            <li><a href="packages.adb">packages.adb</a></li>
+            <li><a href="$package_name">$package_name</a></li>
+            <li><a href="homeproxy-feed.pem">homeproxy-feed.pem</a></li>
+            <li><a href="SHA256SUMS">SHA256SUMS</a></li>
+            <li><a href="index.json">index.json</a></li>
+          </ul>
+          EOF
+          popd
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: signed-homeproxy-${{ github.sha }}.apk
+          path: ci-output/feed/luci-app-homeproxy-*.apk
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ci-output/feed/
+
+      - name: Publish signed APK to GitHub Release
+        uses: svenstaro/upload-release-action@v2
+        if: github.event_name == 'release'
+        with:
+          repo_token: ${{ github.token }}
+          file: ci-output/feed/luci-app-homeproxy-*.apk
+          file_glob: true
+          tag: ${{ github.ref }}
+
+  deploy:
+    name: Deploy GitHub Pages feed
+    needs: publish
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Deploy feed to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

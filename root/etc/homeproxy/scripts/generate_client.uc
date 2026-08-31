@@ -57,8 +57,8 @@ const ipv6_support = uci.get(uciconfig, ucimain, 'ipv6_support') || '0';
 let main_node, main_udp_node, dedicated_udp_node, default_outbound, default_outbound_dns,
     domain_strategy, sniff_override, dns_server, china_dns_server, dns_default_strategy,
     dns_default_server, dns_disable_cache, dns_disable_cache_expire, dns_independent_cache,
-    dns_client_subnet, cache_file_store_rdrc, cache_file_rdrc_timeout, direct_domain_list,
-    proxy_domain_list;
+    dns_reverse_mapping, dns_client_subnet, cache_file_store_rdrc, cache_file_rdrc_timeout,
+    direct_domain_list, proxy_domain_list;
 
 if (routing_mode !== 'custom') {
 	main_node = uci.get(uciconfig, ucimain, 'main_node') || 'nil';
@@ -92,6 +92,7 @@ if (routing_mode !== 'custom') {
 	dns_disable_cache = uci.get(uciconfig, ucidnssetting, 'disable_cache');
 	dns_disable_cache_expire = uci.get(uciconfig, ucidnssetting, 'disable_cache_expire');
 	dns_independent_cache = uci.get(uciconfig, ucidnssetting, 'independent_cache');
+	dns_reverse_mapping = uci.get(uciconfig, ucidnssetting, 'reverse_mapping') || '0';
 	dns_client_subnet = uci.get(uciconfig, ucidnssetting, 'client_subnet');
 	cache_file_store_rdrc = uci.get(uciconfig, ucidnssetting, 'cache_file_store_rdrc'),
 	cache_file_rdrc_timeout = uci.get(uciconfig, ucidnssetting, 'cache_file_rdrc_timeout');
@@ -102,6 +103,8 @@ if (routing_mode !== 'custom') {
 	domain_strategy = uci.get(uciconfig, uciroutingsetting, 'domain_strategy');
 	sniff_override = uci.get(uciconfig, uciroutingsetting, 'sniff_override');
 }
+
+const custom_reverse_mapping = routing_mode === 'custom' && dns_reverse_mapping === '1';
 
 const proxy_mode = uci.get(uciconfig, ucimain, 'proxy_mode') || 'redirect_tproxy',
       default_interface = uci.get(uciconfig, ucicontrol, 'bind_interface');
@@ -432,6 +435,7 @@ config.dns = {
 		}
 	],
 	rules: [],
+	reverse_mapping: custom_reverse_mapping ? true : null,
 	strategy: dns_default_strategy,
 	disable_cache: strToBool(dns_disable_cache),
 	disable_expire: strToBool(dns_disable_cache_expire),
@@ -606,8 +610,8 @@ push(config.inbounds, {
 	listen: '::',
 	listen_port: int(mixed_port),
 	udp_timeout: strToTime(udp_timeout),
-	sniff: true,
-	sniff_override_destination: strToBool(sniff_override),
+	sniff: custom_reverse_mapping ? null : true,
+	sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override),
 	set_system_proxy: false
 });
 
@@ -618,8 +622,8 @@ if (match(proxy_mode, /redirect/))
 
 		listen: '::',
 		listen_port: int(redirect_port),
-		sniff: true,
-		sniff_override_destination: strToBool(sniff_override)
+		sniff: custom_reverse_mapping ? null : true,
+		sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override)
 	});
 if (match(proxy_mode, /tproxy/))
 	push(config.inbounds, {
@@ -630,8 +634,8 @@ if (match(proxy_mode, /tproxy/))
 		listen_port: int(tproxy_port),
 		network: 'udp',
 		udp_timeout: strToTime(udp_timeout),
-		sniff: true,
-		sniff_override_destination: strToBool(sniff_override)
+		sniff: custom_reverse_mapping ? null : true,
+		sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override)
 	});
 if (match(proxy_mode, /tun/))
 	push(config.inbounds, {
@@ -645,8 +649,8 @@ if (match(proxy_mode, /tun/))
 		endpoint_independent_nat: strToBool(endpoint_independent_nat),
 		udp_timeout: strToTime(udp_timeout),
 		stack: tcpip_stack,
-		sniff: true,
-		sniff_override_destination: strToBool(sniff_override)
+		sniff: custom_reverse_mapping ? null : true,
+		sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override)
 	});
 /* Inbound end */
 
@@ -796,12 +800,6 @@ config.route = {
 			inbound: 'dns-in',
 			action: 'hijack-dns'
 		}
-		/*
-		 * leave for sing-box 1.13.0
-		 * {
-		 * 	action: 'sniff'
-		 * }
-		 */
 	],
 	rule_set: [],
 	auto_detect_interface: isEmpty(default_interface) ? true : null,
@@ -937,6 +935,25 @@ if (!isEmpty(main_node)) {
 			tls_record_fragment: strToBool(cfg.tls_record_fragment)
 		});
 	});
+
+	if (custom_reverse_mapping) {
+		/*
+		 * Prefer DNS reverse-mapped domains before sniffing. A TLS ClientHello
+		 * without SNI clears the sniffed domain in sing-box, so sniff only after
+		 * the first custom-rule pass and retry the rules with sniffed metadata.
+		 */
+		const pre_sniff_rules = [];
+		for (let rule in config.route.rules)
+			push(pre_sniff_rules, rule);
+
+		push(config.route.rules, {
+			action: 'sniff'
+		});
+
+		for (let rule in pre_sniff_rules)
+			if (rule.inbound !== 'dns-in')
+				push(config.route.rules, rule);
+	}
 
 	config.route.final = get_outbound(default_outbound);
 

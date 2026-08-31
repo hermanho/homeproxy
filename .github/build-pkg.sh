@@ -5,12 +5,14 @@
 
 set -o errexit
 set -o pipefail
+set -o nounset
 
 PKG_MGR="${1:-apk}"
-RELEASE_TYPE="${2:-snapshot}"
 
-export PKG_SOURCE_DATE_EPOCH="$(date "+%s")"
-export SOURCE_DATE_EPOCH="$PKG_SOURCE_DATE_EPOCH"
+if [ "$PKG_MGR" != "apk" ] && [ "$PKG_MGR" != "ipk" ]; then
+	echo "error: expected package format 'apk' or 'ipk', got '$PKG_MGR'" >&2
+	exit 1
+fi
 
 BASE_DIR="$(cd "$(dirname $0)"; pwd)"
 PKG_DIR="$BASE_DIR/.."
@@ -19,14 +21,43 @@ function get_mk_value() {
 	awk -F "$1:=" '{print $2}' "$PKG_DIR/Makefile" | xargs
 }
 
-PKG_NAME="$(get_mk_value "PKG_NAME")"
-if [ "$RELEASE_TYPE" == "release" ]; then
-	PKG_VERSION="$(get_mk_value "PKG_VERSION")"
-else
-	PKG_VERSION="$PKG_SOURCE_DATE_EPOCH~$(git rev-parse --short HEAD)"
-fi
+function get_source_revision() {
+	local commit_info commit_epoch commit_hash year_day seconds
 
-TEMP_DIR="$(mktemp -d -p $BASE_DIR)"
+	commit_info="$(git -C "$PKG_DIR" log -1 \
+		--format='%ct %h' \
+		--abbrev=7 \
+		-- htdocs root po Makefile .github/build-pkg.sh)"
+	commit_epoch="${commit_info%% *}"
+	commit_hash="${commit_info##* }"
+
+	if ! [[ "$commit_epoch" =~ ^[0-9]+$ ]] || ! [[ "$commit_hash" =~ ^[0-9a-f]{7}$ ]]; then
+		echo "error: unable to determine source revision from git" >&2
+		exit 1
+	fi
+
+	seconds="$((commit_epoch % 86400))"
+	if year_day="$(date --utc --date="@$commit_epoch" '+%y.%j' 2>/dev/null)"; then
+		:
+	else
+		year_day="$(date -u -r "$commit_epoch" '+%y.%j')"
+	fi
+
+	printf '%s.%05d~%s' "$year_day" "$seconds" "$commit_hash"
+}
+
+PKG_NAME="$(get_mk_value "PKG_NAME")"
+PKG_SOURCE_DATE_EPOCH="$(git -C "$PKG_DIR" log -1 \
+	--format='%ct' \
+	-- htdocs root po Makefile .github/build-pkg.sh)"
+PKG_VERSION="$(get_source_revision)"
+export PKG_SOURCE_DATE_EPOCH
+export SOURCE_DATE_EPOCH="$PKG_SOURCE_DATE_EPOCH"
+
+echo "Building $PKG_NAME $PKG_VERSION"
+
+TEMP_DIR="$(mktemp -d -p "$BASE_DIR")"
+trap 'rm -rf "$TEMP_DIR"' EXIT
 TEMP_PKG_DIR="$TEMP_DIR/$PKG_NAME"
 mkdir -p "$TEMP_PKG_DIR/lib/upgrade/keep.d/"
 mkdir -p "$TEMP_PKG_DIR/usr/lib/lua/luci/i18n/"
@@ -50,12 +81,14 @@ EOF
 po2lmo "$PKG_DIR/po/zh_Hans/homeproxy.po" "$TEMP_PKG_DIR/usr/lib/lua/luci/i18n/homeproxy.zh-cn.lmo"
 
 if [ "$PKG_MGR" == "apk" ]; then
-	find "$TEMP_PKG_DIR" -type f,l -printf '/%P\n' | sort > "$TEMP_PKG_DIR/lib/apk/packages/$PKG_NAME.list"
+	find "$TEMP_PKG_DIR" -type f,l -printf '/%P\n' | sort > "$TEMP_DIR/$PKG_NAME.list"
+	mv "$TEMP_DIR/$PKG_NAME.list" "$TEMP_PKG_DIR/lib/apk/packages/$PKG_NAME.list"
 	echo "/etc/config/homeproxy" >> "$TEMP_PKG_DIR/lib/apk/packages/$PKG_NAME.conffiles"
-	cat "$TEMP_PKG_DIR/lib/apk/packages/$PKG_NAME.conffiles" | while IFS= read -r file; do
+	while IFS= read -r file; do
 		[ -f "$TEMP_PKG_DIR/$file" ] || continue
-		sha256sum "$TEMP_PKG_DIR/$file" | sed "s,$TEMP_PKG_DIR/,," >> "$TEMP_PKG_DIR/lib/apk/packages/$PKG_NAME.conffiles_static"
-	done
+		csum="$(sha256sum "$TEMP_PKG_DIR/$file" | awk '{print $1}')"
+		echo "$file $csum" >> "$TEMP_PKG_DIR/lib/apk/packages/$PKG_NAME.conffiles_static"
+	done < "$TEMP_PKG_DIR/lib/apk/packages/$PKG_NAME.conffiles"
 
 	echo -e '#!/bin/sh
 [ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
@@ -73,7 +106,6 @@ default_postinst
 
 	echo -e '#!/bin/sh
 export PKG_UPGRADE=1
-#!/bin/sh
 [ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
 [ -s ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
 . ${IPKG_INSTROOT}/lib/functions.sh
@@ -108,9 +140,9 @@ default_prerm' > "$TEMP_DIR/pre-deinstall"
 		--script "pre-deinstall:$TEMP_DIR/pre-deinstall" \
 		--info "depends:libc sing-box firewall4 kmod-nft-tproxy ucode-mod-digest" \
 		--files "$TEMP_PKG_DIR" \
-		--output "$TEMP_DIR/${PKG_NAME}_${PKG_VERSION}.apk"
+		--output "$TEMP_DIR/${PKG_NAME}-${PKG_VERSION}.apk"
 
-	mv "$TEMP_DIR/${PKG_NAME}_${PKG_VERSION}.apk" "$BASE_DIR/${PKG_NAME}_${PKG_VERSION}_all.apk"
+	mv "$TEMP_DIR/${PKG_NAME}-${PKG_VERSION}.apk" "$BASE_DIR/${PKG_NAME}-${PKG_VERSION}.apk"
 else
 	mkdir -p "$TEMP_PKG_DIR/CONTROL/"
 
@@ -156,5 +188,3 @@ default_prerm $0 $@' > "$TEMP_PKG_DIR/CONTROL/prerm"
 
 	mv "$TEMP_DIR/${PKG_NAME}_${PKG_VERSION}_all.ipk" "$BASE_DIR/${PKG_NAME}_${PKG_VERSION}_all.ipk"
 fi
-
-rm -rf "$TEMP_DIR"
