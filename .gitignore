@@ -1,0 +1,7 @@
+# Local APK build outputs
+ci-output/
+.github/*.apk
+
+# Never commit the private feed signing key
+homeproxy-feed.pem
+homeproxy-feed-private.pem

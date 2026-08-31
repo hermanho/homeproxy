@@ -62,6 +62,7 @@ config homeproxy 'dns'
 	option default_server 'local-dns'
 	option disable_cache '0'
 	option disable_cache_expire '0'
+	option reverse_mapping '0'
 
 config homeproxy 'subscription'
 	option auto_update '0'
@@ -75,4 +76,3 @@ config homeproxy 'subscription'
 config homeproxy 'server'
 	option enabled '0'
 	option log_level 'warn'
-

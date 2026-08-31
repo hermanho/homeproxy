@@ -905,6 +905,11 @@ return view.extend({
 			_('Make each DNS server\'s cache independent for special purposes. If enabled, will slightly degrade performance.'));
 		so.depends('disable_cache', '0');
 
+		so = ss.option(form.Flag, 'reverse_mapping', _('Reverse DNS mapping'),
+			_('Store reverse mappings of DNS responses for routing. When enabled, custom routing rules are evaluated before protocol sniffing and retried with sniffed metadata if no rule matches.'));
+		so.default = so.disabled;
+		so.rmempty = false;
+
 		so = ss.option(form.Value, 'client_subnet', _('EDNS Client subnet'),
 			_('Append a <code>edns0-subnet</code> OPT extra record with the specified IP prefix to every query by default.<br/>' +
 			'If value is an IP address instead of prefix, <code>/32</code> or <code>/128</code> will be appended automatically.'));
