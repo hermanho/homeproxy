@@ -67,12 +67,13 @@ YY.JJJ.SSSSS~COMMIT
 ```
 
 For example, `26.236.50544~cb5d434` represents year 2026, UTC day 236,
-50,544 seconds after UTC midnight, and Git commit `cb5d434`. The timestamp and
-hash come from the latest commit affecting the packaged sources, including the
-translations bundled by this fork. The tracked paths are `htdocs/`, `root/`,
-`po/`, `Makefile` and `.github/build-pkg.sh`. Rebuilding the same clean commit
+50,544 seconds after UTC midnight, and Git commit `cb5d434`. In GitHub Actions,
+the timestamp and hash always come from the exact commit that triggered the
+workflow (`github.sha`), so the published filename cannot drift from the
+source revision being built. Local builds use the current checkout's `HEAD`,
+unless `SOURCE_COMMIT` is set explicitly. Rebuilding the same clean commit
 therefore keeps the same package version. A local build from a dirty worktree
-can contain uncommitted changes without changing this version; commit all
+still uses `HEAD` (uncommitted changes do not alter the version); commit all
 package changes before distributing a build.
 
 ## Install from the trusted feed

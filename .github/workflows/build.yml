@@ -96,6 +96,10 @@ jobs:
           popd
 
       - name: Build APK file
+        env:
+          # Keep package versioning tied to the event's exact commit, even
+          # when the commit only changes workflow or documentation files.
+          SOURCE_COMMIT: ${{ github.sha }}
         run: |
           mkdir -p ci-output/feed
           pushd .github
@@ -177,7 +181,10 @@ jobs:
 
           pushd ci-output/feed
           for package in ./*.apk; do
-            ../apk adbsign --reset-signatures --sign-key "$signing_key" "$package"
+            # Newly built APKs have no trusted signature yet.  adbsign
+            # otherwise reports an error but exits 0, leaving the file
+            # unchanged, so explicitly allow the unsigned input.
+            ../apk adbsign --allow-untrusted --reset-signatures --sign-key "$signing_key" "$package"
           done
           ../apk mkndx \
             --allow-untrusted \

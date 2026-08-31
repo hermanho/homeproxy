@@ -24,10 +24,12 @@ function get_mk_value() {
 function get_source_revision() {
 	local commit_info commit_epoch commit_hash year_day seconds
 
-	commit_info="$(git -C "$PKG_DIR" log -1 \
+	# CI passes the exact triggering commit. For local builds, use the
+	# current checkout's HEAD rather than searching backwards by path.
+	commit_info="$(git -C "$PKG_DIR" show -s \
 		--format='%ct %h' \
 		--abbrev=7 \
-		-- htdocs root po Makefile .github/build-pkg.sh)"
+		"${SOURCE_COMMIT:-${GITHUB_SHA:-HEAD}}")"
 	commit_epoch="${commit_info%% *}"
 	commit_hash="${commit_info##* }"
 
@@ -47,10 +49,9 @@ function get_source_revision() {
 }
 
 PKG_NAME="$(get_mk_value "PKG_NAME")"
-PKG_SOURCE_DATE_EPOCH="$(git -C "$PKG_DIR" log -1 \
-	--format='%ct' \
-	-- htdocs root po Makefile .github/build-pkg.sh)"
 PKG_VERSION="$(get_source_revision)"
+PKG_SOURCE_DATE_EPOCH="$(git -C "$PKG_DIR" show -s --format='%ct' \
+	"${SOURCE_COMMIT:-${GITHUB_SHA:-HEAD}}")"
 export PKG_SOURCE_DATE_EPOCH
 export SOURCE_DATE_EPOCH="$PKG_SOURCE_DATE_EPOCH"
 
