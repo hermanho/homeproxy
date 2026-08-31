@@ -107,14 +107,15 @@ jobs:
 
       - name: Upload feed build bundle
         uses: actions/upload-artifact@v7
+        if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
         with:
           name: ${{ env.BUILD_ARTIFACT_NAME }}
           path: ci-output/
           if-no-files-found: error
 
-      - name: Upload unsigned APK for test builds
+      - name: Upload unsigned APK for PR and mirror builds
         uses: actions/upload-artifact@v7
-        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/dev'
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
         with:
           name: unsigned-${{ github.sha }}.apk
           path: ci-output/feed/luci-app-homeproxy-*.apk
@@ -124,7 +125,7 @@ jobs:
   publish:
     name: Sign and publish feed
     needs: build
-    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
     environment: feed-production
     permissions:
@@ -132,6 +133,21 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout release commit for branch validation
+        if: github.event_name == 'release'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify release commit belongs to dev
+        if: github.event_name == 'release'
+        run: |
+          git fetch origin dev:refs/remotes/origin/dev
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/dev || {
+            echo "Release commit is not contained in the dev branch" >&2
+            exit 1
+          }
+
       - name: Download feed build bundle
         uses: actions/download-artifact@v8
         with:
@@ -213,7 +229,7 @@ jobs:
   deploy:
     name: Deploy GitHub Pages feed
     needs: publish
-    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
     environment:
       name: github-pages

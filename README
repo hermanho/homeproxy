@@ -43,18 +43,19 @@ explicitly enabled.
 
 ### Signed APK feed
 
-GitHub Actions builds an APKv3 package and, for pushes to `master` or published
-releases, signs both the package and its `packages.adb` index. The signed feed is
-published with GitHub Pages:
+GitHub Actions builds an APKv3 package and, for pushes to `dev` or published
+releases whose commit is contained in `dev`, signs both the package and its
+`packages.adb` index. The signed feed is published with GitHub Pages:
 
 ```text
 https://hermanho.github.io/homeproxy/packages.adb
 ```
 
-Pull requests and the `dev` branch produce unsigned test artifacts and never
-receive the production signing secret. Production signing is isolated in the
-`feed-production` GitHub Environment. The private signing key is not stored in
-this repository.
+The `master` branch is reserved as an upstream mirror. Pushes to `master` and
+pull requests produce unsigned artifacts and never receive the production
+signing secret. The `dev` branch contains this fork's published changes.
+Production signing is isolated in the `feed-production` GitHub Environment.
+The private signing key is not stored in this repository.
 
 ### ImmortalWrt-style package versions
 
