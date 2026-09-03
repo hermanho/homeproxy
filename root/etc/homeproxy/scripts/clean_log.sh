@@ -5,7 +5,12 @@
 
 NAME="homeproxy"
 
-log_max_size="50" #KB
+# Keep this in UCI so it can be changed from LuCI.  Fall back to the default
+# for upgrades from older configurations or if uci is temporarily unavailable.
+log_max_size="$(uci -q get homeproxy.config.log_max_size 2>/dev/null || true)"
+case "$log_max_size" in
+	''|*[!0-9]*) log_max_size="50" ;;
+esac
 main_log_file="/var/run/$NAME/$NAME.log"
 singc_log_file="/var/run/$NAME/sing-box-c.log"
 sings_log_file="/var/run/$NAME/sing-box-s.log"

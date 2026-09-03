@@ -128,6 +128,18 @@ return view.extend({
 		o.depends({'routing_mode': 'custom', '!reverse': true});
 		o.rmempty = false;
 
+		o = s.taboption('routing', form.Value, 'log_max_size', _('Maximum log size'),
+			_('Maximum size of each HomeProxy log file before it is cleared, in KiB.'));
+		o.datatype = 'uinteger';
+		o.default = '50';
+		o.rmempty = false;
+		o.validate = function(section_id, value) {
+			let size = Number(value);
+			if (!Number.isInteger(size) || size < 1 || size > 102400)
+				return _('Please enter a whole number between 1 and 102400 KiB.');
+			return true;
+		};
+
 		o = s.taboption('routing', hp.CBIStaticList, 'main_urltest_nodes', _('URLTest nodes'),
 			_('List of nodes to test.'));
 		for (let i in proxy_nodes)
