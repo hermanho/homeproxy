@@ -83,6 +83,17 @@ if (uci.get(uciconfig, ucimain, 'routing_port') === 'all')
 if (uci.get(uciconfig, 'experimental'))
 	uci.delete(uciconfig, 'experimental');
 
+/* sing-box 1.14 DNS/cache migrations */
+if (!isEmpty(uci.get(uciconfig, ucidns, 'independent_cache')))
+	uci.delete(uciconfig, ucidns, 'independent_cache');
+
+if (uci.get(uciconfig, ucidns, 'cache_file_store_rdrc') === '1')
+	uci.set(uciconfig, ucidns, 'cache_file_store_dns', '1');
+if (!isEmpty(uci.get(uciconfig, ucidns, 'cache_file_store_rdrc')))
+	uci.delete(uciconfig, ucidns, 'cache_file_store_rdrc');
+if (!isEmpty(uci.get(uciconfig, ucidns, 'cache_file_rdrc_timeout')))
+	uci.delete(uciconfig, ucidns, 'cache_file_rdrc_timeout');
+
 /* block-dns was removed from built-in dns servers */
 const default_dns_server = uci.get(uciconfig, ucidns, 'default_server');
 if (default_dns_server === 'block-dns') {
@@ -182,6 +193,20 @@ uci.foreach(uciconfig, ucidnsrule, (cfg) => {
 	/* rule_set_ipcidr_match_source was renamed in sb 1.10 */
 	if (cfg.rule_set_ipcidr_match_source === '1')
 		uci.rename(uciconfig, cfg['.name'], 'rule_set_ipcidr_match_source', 'rule_set_ip_cidr_match_source');
+
+	/* DNS response rules replace rule_set_ip_cidr_accept_empty in sb 1.14 */
+	if (!isEmpty(cfg.ip_cidr) || cfg.ip_is_private === '1' || cfg.rule_set_ip_cidr_accept_empty === '1')
+		uci.set(uciconfig, cfg['.name'], 'match_response', '1');
+	if (!isEmpty(cfg.rule_set_ip_cidr_accept_empty))
+		uci.delete(uciconfig, cfg['.name'], 'rule_set_ip_cidr_accept_empty');
+
+	/* Per-rule DNS strategy has no non-deprecated replacement. Keep the value
+	 * so the generator can require an explicit user migration rather than
+	 * silently changing resolver behaviour. */
+	if (cfg.strategy && !cfg.domain_strategy)
+		uci.set(uciconfig, cfg['.name'], 'domain_strategy', cfg.strategy);
+	if (!isEmpty(cfg.strategy))
+		uci.delete(uciconfig, cfg['.name'], 'strategy');
 
 	/* block-dns was moved into action in sb 1.11 */
 	if (cfg.server === 'block-dns') {

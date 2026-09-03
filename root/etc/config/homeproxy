@@ -63,6 +63,7 @@ config homeproxy 'dns'
 	option default_server 'local-dns'
 	option disable_cache '0'
 	option disable_cache_expire '0'
+	option cache_file_store_dns '0'
 	option reverse_mapping '0'
 
 config homeproxy 'subscription'
