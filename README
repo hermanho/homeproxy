@@ -51,6 +51,15 @@ releases whose commit is contained in `dev`, signs both the package and its
 https://hermanho.github.io/homeproxy/packages.adb
 ```
 
+On every publish, the workflow downloads historical APKs from a fixed `feed`
+GitHub Release, adds the new package, and rebuilds the signed index from the
+complete set before deploying it to Pages. This permits an explicit rollback
+such as `apk add 'luci-app-homeproxy=VERSION'`.
+
+The Release is an archive for the workflow, not the router's repository URL:
+GitHub Release downloads use HTTP redirects, which OpenWrt's `apk` may not
+follow. Use the direct GitHub Pages `packages.adb` URL above on the router.
+
 The `master` branch is reserved as an upstream mirror. Pushes to `master` and
 pull requests produce unsigned artifacts and never receive the production
 signing secret. The `dev` branch contains this fork's published changes.

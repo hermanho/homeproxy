@@ -39,6 +39,7 @@ permissions:
 env:
   APK_TOOLS_REF: 'b5a31c0d865342ad80be10d68f1bb3d3ad9b0866'
   BUILD_ARTIFACT_NAME: homeproxy-feed-build-${{ github.run_id }}
+  FEED_RELEASE_TAG: feed
 
 jobs:
   build:
@@ -158,6 +159,26 @@ jobs:
           name: ${{ env.BUILD_ARTIFACT_NAME }}
           path: ci-output
 
+      - name: Restore retained APKs from GitHub Release feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The feed release is created after the first successful signing.
+          # On later builds, retain every prior APK so packages.adb can offer
+          # explicit version installs and rollbacks.
+          if gh release view "$FEED_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            retained_apks="$RUNNER_TEMP/homeproxy-retained-apks"
+            mkdir -p "$retained_apks"
+            gh release download "$FEED_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'luci-app-homeproxy-*.apk' \
+              --dir "$retained_apks"
+            for package in "$retained_apks"/*.apk; do
+              [ -e "$package" ] || continue
+              [ -e "ci-output/feed/$(basename "$package")" ] || cp "$package" ci-output/feed/
+            done
+          fi
+
       - name: Sign APK and repository index
         env:
           APK_SIGNING_KEY_PEM: ${{ secrets.APK_SIGNING_KEY_PEM }}
@@ -195,7 +216,6 @@ jobs:
           ../apk adbdump --format json packages.adb > index.json
           sha256sum ./*.apk packages.adb homeproxy-feed.pem > SHA256SUMS
 
-          package_name="$(basename "$(find . -maxdepth 1 -name 'luci-app-homeproxy-*.apk' -print -quit)")"
           cat > index.html <<EOF
           <!doctype html>
           <meta charset="utf-8">
@@ -203,7 +223,12 @@ jobs:
           <h1>HomeProxy APK feed</h1>
           <ul>
             <li><a href="packages.adb">packages.adb</a></li>
-            <li><a href="$package_name">$package_name</a></li>
+          EOF
+          for package in ./*.apk; do
+            package_name="$(basename "$package")"
+            printf '  <li><a href="%s">%s</a></li>\n' "$package_name" "$package_name" >> index.html
+          done
+          cat >> index.html <<EOF
             <li><a href="homeproxy-feed.pem">homeproxy-feed.pem</a></li>
             <li><a href="SHA256SUMS">SHA256SUMS</a></li>
             <li><a href="index.json">index.json</a></li>
@@ -218,6 +243,33 @@ jobs:
           path: ci-output/feed/luci-app-homeproxy-*.apk
           archive: false
           if-no-files-found: error
+
+      - name: Publish retained GitHub Release feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          if ! gh release view "$FEED_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$FEED_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title 'HomeProxy APK feed' \
+              --notes 'Automatically maintained APK repository. Use the fixed feed URL documented in README.' \
+              --latest=false
+          fi
+
+          gh release upload "$FEED_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            ci-output/feed/luci-app-homeproxy-*.apk \
+            ci-output/feed/packages.adb \
+            ci-output/feed/homeproxy-feed.pem \
+            ci-output/feed/SHA256SUMS \
+            ci-output/feed/index.json \
+            ci-output/feed/index.html \
+            --clobber
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
