@@ -86,7 +86,7 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 				certificate_path: cfg.tls_cert_path,
 				key_path: cfg.tls_key_path,
 				client_certificate_path: cfg.openvpn_client_certificate_path,
-				verify_client_certificate: strToBool(cfg.openvpn_verify_client_certificate)
+				verify_client_certificate: cfg.openvpn_verify_client_certificate || 'none'
 			} : null,
 			push: {
 				dns_servers: cfg.openvpn_push_dns_servers,

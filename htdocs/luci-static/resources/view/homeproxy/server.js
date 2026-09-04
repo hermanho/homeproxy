@@ -207,6 +207,7 @@ return view.extend({
 		o.depends('type', 'http');
 		o.depends('type', 'mixed');
 		o.depends('type', 'naive');
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
 		o.depends('type', 'socks');
 		o.depends('type', 'snell');
 		o.modalonly = true;
@@ -215,6 +216,7 @@ return view.extend({
 		o.password = true;
 		o.depends('type', 'anytls');
 		o.depends({'type': /^(http|mixed|naive|socks)$/, 'username': /[\s\S]/});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'username': /[\s\S]/});
 		o.depends('type', 'hysteria2');
 		o.depends('type', 'shadowsocks');
 		o.depends('type', 'trojan');
@@ -313,6 +315,30 @@ return view.extend({
 		o.modalonly = true;
 		o = s.option(form.Value, 'openvpn_static_key_path', _('OpenVPN static key path'));
 		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'static_key'});
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'openvpn_verify_client_certificate', _('OpenVPN client certificate policy'));
+		o.value('none', _('Do not request a client certificate'));
+		o.value('optional', _('Verify a client certificate when provided'));
+		o.value('require', _('Require and verify a client certificate'));
+		o.default = 'none';
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
+		o.rmempty = false;
+		o.modalonly = true;
+		o = s.option(form.Value, 'openvpn_client_certificate_path', _('OpenVPN client CA certificate path'),
+		_('The CA certificate used to verify client certificates.'));
+		o.value('/etc/homeproxy/certs/client_ca.pem');
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'optional'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'require'});
+		o.validate = hp.validateCertificatePath;
+		o.rmempty = false;
+		o.modalonly = true;
+		o = s.option(form.Button, '_upload_openvpn_client_ca', _('Upload OpenVPN client CA certificate'),
+		_('<strong>Save your configuration before uploading files!</strong>'));
+		o.inputstyle = 'action';
+		o.inputtitle = _('Upload...');
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'optional', 'openvpn_client_certificate_path': '/etc/homeproxy/certs/client_ca.pem'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'require', 'openvpn_client_certificate_path': '/etc/homeproxy/certs/client_ca.pem'});
+		o.onclick = L.bind(hp.uploadCertificate, this, _('OpenVPN client CA certificate'), 'client_ca');
 		o.modalonly = true;
 		o = s.option(form.DynamicList, 'openvpn_push_dns_servers', _('Pushed DNS servers'));
 		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
