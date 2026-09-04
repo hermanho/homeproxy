@@ -90,8 +90,8 @@ return view.extend({
 		/* Cache all configured proxy nodes, they will be called multiple times */
 		let proxy_nodes = {};
 		uci.sections(data[0], 'node', (res) => {
-			let nodeaddr = ((res.type === 'direct') ? res.override_address : res.address) || '',
-			    nodeport = ((res.type === 'direct') ? res.override_port : res.port) || '';
+			let nodeaddr = res.address || '',
+			    nodeport = res.port || '';
 
 			proxy_nodes[res['.name']] =
 				String.format('[%s] %s', res.type, res.label || ((stubValidator.apply('ip6addr', nodeaddr) ?
@@ -118,6 +118,50 @@ return view.extend({
 		s = m.section(form.NamedSection, 'config', 'homeproxy');
 
 		s.tab('routing', _('Routing Settings'));
+		s.tab('api', _('API and Dashboard'));
+		s.tab('namespace', _('Network Namespaces'));
+		o = s.taboption('api', form.Flag, 'api_enabled', _('Enable sing-box API'),
+			_('The API can control sing-box. It listens on 127.0.0.1 by default.'));
+		o.default = '0';
+		o = s.taboption('api', form.Value, 'api_listen', _('Listen address'));
+		o.placeholder = '127.0.0.1';
+		o.depends('api_enabled', '1');
+		o = s.taboption('api', form.Value, 'api_port', _('Listen port'));
+		o.datatype = 'port';
+		o.placeholder = '9090';
+		o.depends('api_enabled', '1');
+		o = s.taboption('api', form.Value, 'api_secret', _('API secret'));
+		o.password = true;
+		o.depends('api_enabled', '1');
+		o = s.taboption('api', form.DynamicList, 'api_access_control_allow_origin', _('Allowed CORS origins'));
+		o.depends('api_enabled', '1');
+		o = s.taboption('api', form.Flag, 'api_access_control_allow_private_network', _('Allow private-network access'));
+		o.depends('api_enabled', '1');
+		o = s.taboption('api', form.Flag, 'api_dashboard', _('Enable Dashboard'));
+		o.depends('api_enabled', '1');
+		o = s.taboption('api', form.Value, 'api_dashboard_path', _('Dashboard directory'));
+		o.depends({'api_enabled': '1', 'api_dashboard': '1'});
+		o = s.taboption('api', form.Value, 'api_dashboard_download_url', _('Dashboard archive URL'));
+		o.depends({'api_enabled': '1', 'api_dashboard': '1'});
+		o = s.taboption('api', form.Value, 'api_dashboard_update_interval', _('Dashboard update interval'));
+		o.placeholder = '1d';
+		o.depends({'api_enabled': '1', 'api_dashboard': '1'});
+		o = s.taboption('namespace', form.SectionValue, '_network_namespace', form.GridSection, 'network_namespace',
+			_('Linux network namespaces'));
+		ss = o.subsection;
+		ss.addremove = true;
+		so = ss.option(form.Flag, 'enabled', _('Enable'));
+		so = ss.option(form.ListValue, 'type', _('Type'));
+		so.value('default', _('Attach existing namespace'));
+		so.value('unshare', _('Create namespace'));
+		so.default = 'default';
+		so = ss.option(form.Value, 'tag', _('Tag'));
+		so = ss.option(form.Value, 'path', _('Namespace name or path'),
+			_('For example: sing or /run/netns/sing. Linux only.'));
+		so.depends('type', 'default');
+		so.rmempty = false;
+		so = ss.option(form.Value, 'pid_file', _('Namespace PID file'));
+		so.depends('type', 'unshare');
 
 		o = s.taboption('routing', form.ListValue, 'main_node', _('Main node'));
 		o.value('nil', _('Disable'));
@@ -685,6 +729,7 @@ return view.extend({
 		so.value('resolve', _('Resolve'));
 		so.default = 'route';
 		so.rmempty = false;
+
 		so.editable = true;
 
 		so = ss.taboption('field_other', form.ListValue, 'outbound', _('Outbound'),
@@ -913,10 +958,6 @@ return view.extend({
 		so = ss.option(form.Flag, 'disable_cache_expire', _('Disable cache expire'));
 		so.depends('disable_cache', '0');
 
-		so = ss.option(form.Flag, 'independent_cache', _('Independent cache per server'),
-			_('Make each DNS server\'s cache independent for special purposes. If enabled, will slightly degrade performance.'));
-		so.depends('disable_cache', '0');
-
 		so = ss.option(form.Flag, 'reverse_mapping', _('Reverse DNS mapping'),
 			_('Store reverse mappings of DNS responses for routing. When enabled, custom routing rules are evaluated before protocol sniffing and retried with sniffed metadata if no rule matches.'));
 		so.default = so.disabled;
@@ -927,14 +968,8 @@ return view.extend({
 			'If value is an IP address instead of prefix, <code>/32</code> or <code>/128</code> will be appended automatically.'));
 		so.datatype = 'or(cidr, ipaddr)';
 
-		so = ss.option(form.Flag, 'cache_file_store_rdrc', _('Store RDRC'),
-			_('Store rejected DNS response cache.<br/>' +
-			'The check results of <code>Address filter DNS rule items</code> will be cached until expiration.'));
-
-		so = ss.option(form.Value, 'cache_file_rdrc_timeout', _('RDRC timeout'),
-			_('Timeout of rejected DNS response cache in seconds. <code>604800 (7d)</code> is used by default.'));
-		so.datatype = 'uinteger';
-		so.depends('cache_file_store_rdrc', '1');
+		so = ss.option(form.Flag, 'cache_file_store_dns', _('Persist DNS cache'),
+			_('Persist the full DNS cache across sing-box restarts.'));
 		/* DNS settings end */
 
 		/* DNS servers start */
@@ -968,8 +1003,31 @@ return view.extend({
 		so.value('https', _('HTTPS'));
 		so.value('h3', _('HTTP/3'));
 		so.value('quic', _('QUIC'));
+		so.value('openconnect', _('OpenConnect pushed DNS'));
+		so.value('openvpn', _('OpenVPN pushed DNS'));
 		so.default = 'udp';
 		so.rmempty = false;
+
+		so = ss.option(form.ListValue, 'endpoint', _('VPN endpoint'));
+		so.load = function(section_id) {
+			delete this.keylist;
+			delete this.vallist;
+			uci.sections(data[0], 'node', (res) => {
+				if (res.type === 'openconnect' || res.type === 'openvpn')
+					this.value(res['.name'], res.label);
+			});
+			return this.super('load', section_id);
+		};
+		so.depends('type', 'openconnect');
+		so.depends('type', 'openvpn');
+		so.modalonly = true;
+		so = ss.option(form.Flag, 'accept_default_resolvers', _('Accept pushed default resolvers'));
+		so.depends('type', 'openconnect');
+		so.depends('type', 'openvpn');
+		so.modalonly = true;
+		so = ss.option(form.Flag, 'accept_search_domain', _('Accept pushed search domains'));
+		so.depends('type', 'openconnect');
+		so.modalonly = true;
 
 		so = ss.option(form.Value, 'server', _('Address'),
 			_('The address of the dns server.'));
@@ -1152,8 +1210,26 @@ return view.extend({
 			_('Make IP CIDR in rule sets match the source IP.'));
 		so.modalonly = true;
 
-		so = ss.taboption('field_other', form.Flag, 'rule_set_ip_cidr_accept_empty', _('Accept empty query response'),
-			_('Make IP CIDR in rule-sets accept empty query response.'));
+		so = ss.taboption('field_other', form.Flag, 'match_response', _('Match DNS response'),
+			_('Evaluate the query first, then match response IPs and selected rule sets. An evaluation server is required.'));
+		so.modalonly = true;
+
+		so = ss.taboption('field_other', form.ListValue, 'evaluate_server', _('Evaluation server'),
+			_('Resolver used to obtain the response before matching it. Required for response IP filters and response rule sets.'));
+		so.load = function(section_id) {
+			delete this.keylist;
+			delete this.vallist;
+
+			this.value('', _('Select a server'));
+			this.value('default-dns', _('Default DNS (issued by WAN)'));
+			this.value('system-dns', _('System DNS'));
+			uci.sections(data[0], 'dns_server', (res) => {
+				if (res.enabled === '1')
+					this.value(res['.name'], res.label);
+			});
+
+			return this.super('load', section_id);
+		}
 		so.modalonly = true;
 
 		so = ss.taboption('field_other', form.Flag, 'invert', _('Invert'),
@@ -1188,12 +1264,6 @@ return view.extend({
 		so.editable = true;
 		so.depends('action', 'route');
 
-		so = ss.taboption('field_other', form.ListValue, 'domain_strategy', _('Domain strategy'),
-			_('Set domain strategy for this query.'));
-		for (let i in hp.dns_strategy)
-			so.value(i, hp.dns_strategy[i]);
-		so.depends('action', 'route');
-		so.modalonly = true;
 
 		so = ss.taboption('field_other', form.Flag, 'dns_disable_cache', _('Disable dns cache'),
 			_('Disable cache and save cache in this query.'));
@@ -1281,13 +1351,13 @@ return view.extend({
 		so = ss.taboption('field_host', form.Flag, 'source_ip_is_private', _('Match private source IP'));
 		so.modalonly = true;
 
-		so = ss.taboption('field_host', form.DynamicList, 'ip_cidr', _('IP CIDR'),
-			_('Match IP CIDR with query response. Current rule will be skipped if not match.'));
+		so = ss.taboption('field_host', form.DynamicList, 'ip_cidr', _('Response IP CIDR'),
+			_('Evaluate the query first, then match this CIDR against the DNS response.'));
 		so.datatype = 'or(cidr, ipaddr)';
 		so.modalonly = true;
 
-		so = ss.taboption('field_host', form.Flag, 'ip_is_private', _('Match private IP'),
-			_('Match private IP with query response.'));
+		so = ss.taboption('field_host', form.Flag, 'ip_is_private', _('Match private response IP'),
+			_('Evaluate the query first, then match private addresses in the DNS response.'));
 		so.modalonly = true;
 
 		so = ss.taboption('field_port', form.DynamicList, 'source_port', _('Source port'),

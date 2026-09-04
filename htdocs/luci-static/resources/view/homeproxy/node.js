@@ -424,9 +424,23 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o.validate = L.bind(hp.validateUniqueValue, this, data[0], 'node', 'label');
 	o.modalonly = true;
 
+	o = s.option(form.ListValue, 'network_namespace', _('Network namespace'));
+	o.load = function(section_id) {
+		delete this.keylist;
+		delete this.vallist;
+		this.value('', _('Default namespace'));
+		uci.sections(data[0], 'network_namespace', (res) => {
+			if (res.enabled === '1')
+				this.value(res.tag || res['.name'], res.tag || res.path);
+		});
+		return this.super('load', section_id);
+	};
+	o.modalonly = true;
+
 	o = s.option(form.ListValue, 'type', _('Type'));
-	o.value('direct', _('Direct'));
+	o.value('direct', _('Direct (legacy; migrate to routing rule)'));
 	o.value('anytls', _('AnyTLS'));
+	o.value('bridge', _('Bridge (L3 only)'));
 	o.value('http', _('HTTP'));
 	if (features.with_quic) {
 		o.value('hysteria', _('Hysteria'));
@@ -434,8 +448,11 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	}
 	o.value('shadowsocks', _('Shadowsocks'));
 	o.value('shadowtls', _('ShadowTLS'));
+	o.value('snell', _('Snell'));
 	o.value('socks', _('Socks'));
 	o.value('ssh', _('SSH'));
+	o.value('openconnect', _('OpenConnect endpoint'));
+	o.value('openvpn', _('OpenVPN endpoint'));
 	o.value('trojan', _('Trojan'));
 	if (features.with_quic)
 		o.value('tuic', _('Tuic'));
@@ -444,21 +461,35 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o.value('vless', _('VLESS'));
 	o.value('vmess', _('VMess'));
 	o.rmempty = false;
+	o.description = _('Use the Direct outbound in routing settings. A legacy Direct node with an address or port cannot be used by sing-box 1.14; create a routing rule with Override address and/or Override port instead.');
+
+	o = s.option(form.DummyValue, '_direct_node_migration', _('Direct node migration required'),
+		_('sing-box 1.14 removed destination overrides from Direct outbounds. Copy this node\'s address and port into a matching Routing Rule, select Direct as its outbound, then remove this node.'));
+	o.depends('type', 'direct');
+	o.modalonly = true;
 
 	o = s.option(form.Value, 'address', _('Address'));
 	o.datatype = 'host';
 	o.depends({'type': 'direct', '!reverse': true});
+	o.depends({'type': 'bridge', '!reverse': true});
+	o.depends({'type': 'snell', '!reverse': true});
+	o.depends({'type': 'openconnect', '!reverse': true});
+	o.depends({'type': 'openvpn', '!reverse': true});
 	o.rmempty = false;
 
 	o = s.option(form.Value, 'port', _('Port'));
 	o.datatype = 'port';
 	o.depends({'type': 'direct', '!reverse': true});
+	o.depends({'type': 'snell', '!reverse': true});
+	o.depends({'type': 'openvpn', '!reverse': true});
 	o.rmempty = false;
 
 	o = s.option(form.Value, 'username', _('Username'));
 	o.depends('type', 'http');
 	o.depends('type', 'socks');
 	o.depends('type', 'ssh');
+	o.depends('type', 'openconnect');
+	o.depends('type', 'openvpn');
 	o.modalonly = true;
 
 	o = s.option(form.Value, 'password', _('Password'));
@@ -469,6 +500,9 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o.depends('type', 'shadowsocks');
 	o.depends('type', 'ssh');
 	o.depends('type', 'trojan');
+	o.depends('type', 'snell');
+	o.depends('type', 'openconnect');
+	o.depends('type', 'openvpn');
 	o.depends('type', 'tuic');
 	o.depends({'type': 'shadowtls', 'shadowtls_version': '2'});
 	o.depends({'type': 'shadowtls', 'shadowtls_version': '3'});
@@ -525,6 +559,123 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o.modalonly = true;
 	/* AnyTLS config end */
 
+	/* Bridge config */
+	o = s.option(form.Value, 'bridge_interface', _('Egress interface'),
+		_('Bridge only forwards L3 traffic from a TUN or other L3 inbound.'));
+	o.depends('type', 'bridge');
+	o.modalonly = true;
+	o = s.option(form.Value, 'bridge_name', _('Bridge interface prefix'));
+	o.placeholder = 'bridge';
+	o.depends('type', 'bridge');
+	o.modalonly = true;
+	o = s.option(form.Value, 'bridge_iproute2_table_index', _('IP route table index'));
+	o.datatype = 'uinteger';
+	o.depends('type', 'bridge');
+	o.modalonly = true;
+	o = s.option(form.Value, 'bridge_iproute2_rule_index', _('IP rule index'));
+	o.datatype = 'uinteger';
+	o.depends('type', 'bridge');
+	o.modalonly = true;
+
+	/* Snell config */
+	o = s.option(form.ListValue, 'snell_version', _('Snell version'));
+	o.value('4');
+	o.value('6');
+	o.default = '4';
+	o.depends('type', 'snell');
+	o.rmempty = false;
+	o.modalonly = true;
+	o = s.option(form.Value, 'snell_psk', _('Pre-shared key'));
+	o.password = true;
+	o.depends('type', 'snell');
+	o.rmempty = false;
+	o.modalonly = true;
+	o = s.option(form.Value, 'snell_userkey', _('User key'));
+	o.password = true;
+	o.depends('type', 'snell');
+	o.modalonly = true;
+	o = s.option(form.Flag, 'snell_reuse', _('Enable connection reuse'));
+	o.depends('type', 'snell');
+	o.modalonly = true;
+	o = s.option(form.ListValue, 'snell_network', _('Network'));
+	o.value('', _('TCP and UDP'));
+	o.value('tcp');
+	o.value('udp');
+	o.depends('type', 'snell');
+	o.modalonly = true;
+	o = s.option(form.ListValue, 'snell_obfs_mode', _('HTTP obfuscation'));
+	o.value('', _('Disable'));
+	o.value('http');
+	o.depends({'type': 'snell', 'snell_version': '4'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'snell_obfs_host', _('HTTP obfuscation host'));
+	o.depends({'type': 'snell', 'snell_version': '4', 'snell_obfs_mode': 'http'});
+	o.modalonly = true;
+	o = s.option(form.ListValue, 'snell_mode', _('Traffic shaping mode'));
+	o.value('', _('Default'));
+	o.value('unshaped');
+	o.value('unsafe-raw');
+	o.depends({'type': 'snell', 'snell_version': '6'});
+	o.modalonly = true;
+
+	/* OpenConnect / OpenVPN endpoint config */
+	o = s.option(form.ListValue, 'openconnect_flavor', _('VPN flavour'));
+	for (let flavor of ['anyconnect', 'gp', 'fortinet', 'f5', 'pulse', 'nc'])
+		o.value(flavor);
+	o.default = 'anyconnect';
+	o.depends('type', 'openconnect');
+	o.modalonly = true;
+	o = s.option(form.Flag, 'openconnect_no_udp', _('Disable DTLS/UDP'));
+	o.depends('type', 'openconnect');
+	o.modalonly = true;
+	o = s.option(form.Flag, 'openconnect_ipv6_disabled', _('Disable IPv6'));
+	o.depends('type', 'openconnect');
+	o.modalonly = true;
+	o = s.option(form.Value, 'vpn_mtu', _('VPN MTU'));
+	o.datatype = 'uinteger';
+	o.depends('type', 'openconnect');
+	o.depends('type', 'openvpn');
+	o.modalonly = true;
+	o = s.option(form.ListValue, 'openvpn_mode', _('OpenVPN mode'));
+	o.value('tls');
+	o.value('static_key');
+	o.default = 'tls';
+	o.depends('type', 'openvpn');
+	o.modalonly = true;
+	o = s.option(form.ListValue, 'openvpn_network', _('OpenVPN transport'));
+	o.value('udp');
+	o.value('tcp');
+	o.default = 'udp';
+	o.depends('type', 'openvpn');
+	o.modalonly = true;
+	o = s.option(form.DynamicList, 'openvpn_address', _('OpenVPN tunnel addresses'));
+	o.depends('type', 'openvpn');
+	o.modalonly = true;
+	o = s.option(form.Value, 'openvpn_peer_address', _('OpenVPN peer address'));
+	o.depends({'type': 'openvpn', 'openvpn_mode': 'static_key'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'openvpn_static_key_path', _('OpenVPN static key path'));
+	o.depends({'type': 'openvpn', 'openvpn_mode': 'static_key'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'openvpn_ca_path', _('OpenVPN CA certificate path'));
+	o.depends({'type': 'openvpn', 'openvpn_mode': 'tls'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'openvpn_client_certificate_path', _('OpenVPN client certificate path'));
+	o.depends({'type': 'openvpn', 'openvpn_mode': 'tls'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'openvpn_client_key_path', _('OpenVPN client private-key path'));
+	o.depends({'type': 'openvpn', 'openvpn_mode': 'tls'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'openconnect_ca_path', _('CA certificate path'));
+	o.depends('type', 'openconnect');
+	o.modalonly = true;
+	o = s.option(form.Value, 'openconnect_client_certificate_path', _('Client certificate path'));
+	o.depends('type', 'openconnect');
+	o.modalonly = true;
+	o = s.option(form.Value, 'openconnect_client_key_path', _('Client private-key path'));
+	o.depends('type', 'openconnect');
+	o.modalonly = true;
+
 	/* Hysteria (2) config start */
 	o = s.option(form.DynamicList, 'hysteria_hopping_port', _('Hopping port'));
 	o.depends('type', 'hysteria');
@@ -567,7 +718,59 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o = s.option(form.ListValue, 'hysteria_obfs_type', _('Obfuscate type'));
 	o.value('', _('Disable'));
 	o.value('salamander', _('Salamander'));
+	o.value('gecko', _('Gecko'));
 	o.depends('type', 'hysteria2');
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_obfs_min_packet_size', _('Gecko minimum packet size'));
+	o.datatype = 'uinteger';
+	o.depends({'type': 'hysteria2', 'hysteria_obfs_type': 'gecko'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_obfs_max_packet_size', _('Gecko maximum packet size'));
+	o.datatype = 'uinteger';
+	o.depends({'type': 'hysteria2', 'hysteria_obfs_type': 'gecko'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_hop_interval_max', _('Maximum hop interval'));
+	o.datatype = 'uinteger';
+	o.depends({'type': 'hysteria2', 'hysteria_hopping_port': /[\s\S]/});
+	o.modalonly = true;
+	o = s.option(form.ListValue, 'hysteria_bbr_profile', _('BBR profile'));
+	o.value('', _('Standard'));
+	o.value('conservative');
+	o.value('aggressive');
+	o.depends('type', 'hysteria2');
+	o.modalonly = true;
+	o = s.option(form.Flag, 'hysteria_realm_enabled', _('Use Hysteria Realm'));
+	o.depends('type', 'hysteria2');
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_realm_server_url', _('Realm server URL'));
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_realm_token', _('Realm token'));
+	o.password = true;
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_realm_id', _('Realm ID'));
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+	o.modalonly = true;
+	o = s.option(form.DynamicList, 'hysteria_realm_stun_servers', _('STUN servers'));
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+	o.modalonly = true;
+	o = s.option(form.ListValue, 'hysteria_realm_ip_version', _('Realm IP version'));
+	o.value('', _('IPv4 and IPv6'));
+	o.value('4', _('IPv4'));
+	o.value('6', _('IPv6'));
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+	o.modalonly = true;
+	o = s.option(form.Flag, 'hysteria_realm_port_mapping', _('Enable UPnP/NAT-PMP port mapping'));
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_realm_port_mapping_timeout', _('Port mapping discovery timeout'));
+	o.datatype = 'uinteger';
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1', 'hysteria_realm_port_mapping': '1'});
+	o.modalonly = true;
+	o = s.option(form.Value, 'hysteria_realm_port_mapping_lifetime', _('Port mapping lifetime'));
+	o.datatype = 'uinteger';
+	o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1', 'hysteria_realm_port_mapping': '1'});
 	o.modalonly = true;
 
 	o = s.option(form.Value, 'hysteria_obfs_password', _('Obfuscate password'));
@@ -605,6 +808,11 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o = s.option(form.Flag, 'hysteria_disable_mtu_discovery', _('Disable Path MTU discovery'),
 		_('Disables Path MTU Discovery (RFC 8899). Packets will then be at most 1252 (IPv4) / 1232 (IPv6) bytes in size.'));
 	o.depends('type', 'hysteria');
+	o.modalonly = true;
+
+	o = s.option(form.Flag, 'hysteria_disable_chrome_parrot', _('Disable Chrome QUIC parrot'),
+		_('Required when the Hysteria2 server uses an Ed25519 TLS certificate.'));
+	o.depends('type', 'hysteria2');
 	o.modalonly = true;
 	/* Hysteria (2) config end */
 

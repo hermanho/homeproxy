@@ -174,6 +174,8 @@ return view.extend({
 
 		o = s.option(form.ListValue, 'type', _('Type'));
 		o.value('anytls', _('AnyTLS'));
+		o.value('hysteria-realm', _('Hysteria Realm service'));
+		o.value('openvpn-server', _('OpenVPN server endpoint'));
 		o.value('http', _('HTTP'));
 		if (features.with_quic) {
 			o.value('hysteria', _('Hysteria'));
@@ -182,6 +184,7 @@ return view.extend({
 		}
 		o.value('mixed', _('Mixed'));
 		o.value('shadowsocks', _('Shadowsocks'));
+		o.value('snell', _('Snell'));
 		o.value('socks', _('Socks'));
 		o.value('trojan', _('Trojan'));
 		if (features.with_quic)
@@ -204,16 +207,20 @@ return view.extend({
 		o.depends('type', 'http');
 		o.depends('type', 'mixed');
 		o.depends('type', 'naive');
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
 		o.depends('type', 'socks');
+		o.depends('type', 'snell');
 		o.modalonly = true;
 
 		o = s.option(CBIGenValue, 'password', _('Password'));
 		o.password = true;
 		o.depends('type', 'anytls');
 		o.depends({'type': /^(http|mixed|naive|socks)$/, 'username': /[\s\S]/});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'username': /[\s\S]/});
 		o.depends('type', 'hysteria2');
 		o.depends('type', 'shadowsocks');
 		o.depends('type', 'trojan');
+		o.depends('type', 'snell');
 		o.depends('type', 'tuic');
 		o.validate = function(section_id, value) {
 			if (section_id) {
@@ -244,6 +251,103 @@ return view.extend({
 		o = s.option(form.DynamicList, 'anytls_padding_scheme', _('Padding scheme'),
 			_('AnyTLS padding scheme in array.'));
 		o.depends('type', 'anytls');
+		o.modalonly = true;
+
+		/* Snell / Hysteria Realm */
+		o = s.option(form.ListValue, 'snell_version', _('Snell version'));
+		o.value('5');
+		o.value('6');
+		o.default = '5';
+		o.depends('type', 'snell');
+		o.modalonly = true;
+		o = s.option(CBIGenValue, 'snell_psk', _('Snell pre-shared key'));
+		o.password = true;
+		o.depends('type', 'snell');
+		o.modalonly = true;
+		o = s.option(CBIGenValue, 'snell_userkey', _('Snell user key'));
+		o.password = true;
+		o.depends('type', 'snell');
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'snell_obfs_mode', _('Snell HTTP obfuscation'));
+		o.value('', _('Disable'));
+		o.value('http');
+		o.depends({'type': 'snell', 'snell_version': '5'});
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'snell_mode', _('Snell traffic shaping'));
+		o.value('', _('Default'));
+		o.value('unshaped');
+		o.value('unsafe-raw');
+		o.depends({'type': 'snell', 'snell_version': '6'});
+		o.modalonly = true;
+		o = s.option(form.Value, 'realm_user', _('Realm user name'));
+		o.depends('type', 'hysteria-realm');
+		o.modalonly = true;
+		o = s.option(CBIGenValue, 'realm_token', _('Realm token'));
+		o.password = true;
+		o.depends('type', 'hysteria-realm');
+		o.modalonly = true;
+		o = s.option(form.Value, 'realm_max_realms', _('Maximum realm slots'));
+		o.datatype = 'uinteger';
+		o.depends('type', 'hysteria-realm');
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'openvpn_mode', _('OpenVPN mode'));
+		o.value('tls');
+		o.value('static_key');
+		o.default = 'tls';
+		o.depends('type', 'openvpn-server');
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'openvpn_network', _('OpenVPN transport'));
+		o.value('udp');
+		o.value('tcp');
+		o.default = 'udp';
+		o.depends('type', 'openvpn-server');
+		o.modalonly = true;
+		o = s.option(form.DynamicList, 'openvpn_address', _('OpenVPN server prefixes'));
+		o.depends('type', 'openvpn-server');
+		o.modalonly = true;
+		o = s.option(form.Value, 'openvpn_mtu', _('OpenVPN MTU'));
+		o.datatype = 'uinteger';
+		o.depends('type', 'openvpn-server');
+		o.modalonly = true;
+		o = s.option(form.Value, 'openvpn_max_clients', _('OpenVPN maximum clients'));
+		o.datatype = 'uinteger';
+		o.depends('type', 'openvpn-server');
+		o.modalonly = true;
+		o = s.option(form.Value, 'openvpn_static_key_path', _('OpenVPN static key path'));
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'static_key'});
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'openvpn_verify_client_certificate', _('OpenVPN client certificate policy'));
+		o.value('none', _('Do not request a client certificate'));
+		o.value('optional', _('Verify a client certificate when provided'));
+		o.value('require', _('Require and verify a client certificate'));
+		o.default = 'none';
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
+		o.rmempty = false;
+		o.modalonly = true;
+		o = s.option(form.Value, 'openvpn_client_certificate_path', _('OpenVPN client CA certificate path'),
+		_('The CA certificate used to verify client certificates.'));
+		o.value('/etc/homeproxy/certs/client_ca.pem');
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'optional'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'require'});
+		o.validate = hp.validateCertificatePath;
+		o.rmempty = false;
+		o.modalonly = true;
+		o = s.option(form.Button, '_upload_openvpn_client_ca', _('Upload OpenVPN client CA certificate'),
+		_('<strong>Save your configuration before uploading files!</strong>'));
+		o.inputstyle = 'action';
+		o.inputtitle = _('Upload...');
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'optional', 'openvpn_client_certificate_path': '/etc/homeproxy/certs/client_ca.pem'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'openvpn_verify_client_certificate': 'require', 'openvpn_client_certificate_path': '/etc/homeproxy/certs/client_ca.pem'});
+		o.onclick = L.bind(hp.uploadCertificate, this, _('OpenVPN client CA certificate'), 'client_ca');
+		o.modalonly = true;
+		o = s.option(form.DynamicList, 'openvpn_push_dns_servers', _('Pushed DNS servers'));
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
+		o.modalonly = true;
+		o = s.option(form.DynamicList, 'openvpn_push_search_domains', _('Pushed DNS search domains'));
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
+		o.modalonly = true;
+		o = s.option(form.Flag, 'openvpn_push_redirect_gateway', _('Push default gateway'));
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
 		o.modalonly = true;
 
 		/* Hysteria (2) config start */
@@ -288,7 +392,16 @@ return view.extend({
 		o = s.option(form.ListValue, 'hysteria_obfs_type', _('Obfuscate type'));
 		o.value('', _('Disable'));
 		o.value('salamander', _('Salamander'));
+		o.value('gecko', _('Gecko'));
 		o.depends('type', 'hysteria2');
+		o.modalonly = true;
+		o = s.option(form.Value, 'hysteria_obfs_min_packet_size', _('Gecko minimum packet size'));
+		o.datatype = 'uinteger';
+		o.depends({'type': 'hysteria2', 'hysteria_obfs_type': 'gecko'});
+		o.modalonly = true;
+		o = s.option(form.Value, 'hysteria_obfs_max_packet_size', _('Gecko maximum packet size'));
+		o.datatype = 'uinteger';
+		o.depends({'type': 'hysteria2', 'hysteria_obfs_type': 'gecko'});
 		o.modalonly = true;
 
 		o = s.option(CBIGenValue, 'hysteria_obfs_password', _('Obfuscate password'));
@@ -331,6 +444,45 @@ return view.extend({
 		o = s.option(form.Value, 'hysteria_masquerade', _('Masquerade'),
 			_('HTTP3 server behavior when authentication fails.<br/>A 404 page will be returned if empty.'));
 		o.depends('type', 'hysteria2');
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'hysteria_bbr_profile', _('BBR profile'));
+		o.value('', _('Standard'));
+		o.value('conservative');
+		o.value('aggressive');
+		o.depends('type', 'hysteria2');
+		o.modalonly = true;
+		o = s.option(form.Flag, 'hysteria_realm_enabled', _('Register with Hysteria Realm'));
+		o.depends('type', 'hysteria2');
+		o.modalonly = true;
+		o = s.option(form.Value, 'hysteria_realm_server_url', _('Realm server URL'));
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+		o.modalonly = true;
+		o = s.option(CBIGenValue, 'hysteria_realm_token', _('Realm token'));
+		o.password = true;
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+		o.modalonly = true;
+		o = s.option(form.Value, 'hysteria_realm_id', _('Realm ID'));
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+		o.modalonly = true;
+		o = s.option(form.DynamicList, 'hysteria_realm_stun_servers', _('STUN servers'));
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+		o.modalonly = true;
+		o = s.option(form.ListValue, 'hysteria_realm_ip_version', _('Realm IP version'));
+		o.value('', _('IPv4 and IPv6'));
+		o.value('4', _('IPv4'));
+		o.value('6', _('IPv6'));
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+		o.modalonly = true;
+		o = s.option(form.Flag, 'hysteria_realm_port_mapping', _('Enable UPnP/NAT-PMP port mapping'));
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1'});
+		o.modalonly = true;
+		o = s.option(form.Value, 'hysteria_realm_port_mapping_timeout', _('Port mapping discovery timeout'));
+		o.datatype = 'uinteger';
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1', 'hysteria_realm_port_mapping': '1'});
+		o.modalonly = true;
+		o = s.option(form.Value, 'hysteria_realm_port_mapping_lifetime', _('Port mapping lifetime'));
+		o.datatype = 'uinteger';
+		o.depends({'type': 'hysteria2', 'hysteria_realm_enabled': '1', 'hysteria_realm_port_mapping': '1'});
 		o.modalonly = true;
 		/* Hysteria (2) config end */
 
@@ -534,6 +686,7 @@ return view.extend({
 		o.depends('type', 'http');
 		o.depends('type', 'hysteria');
 		o.depends('type', 'hysteria2');
+		o.depends('type', 'hysteria-realm');
 		o.depends('type', 'naive');
 		o.depends('type', 'trojan');
 		o.depends('type', 'tuic');
@@ -760,6 +913,7 @@ return view.extend({
 		o.depends({'tls': '1', 'tls_acme': '0', 'tls_reality': '0'});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': '0'});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': null});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
 		o.validate = hp.validateCertificatePath;
 		o.rmempty = false;
 		o.modalonly = true;
@@ -769,6 +923,7 @@ return view.extend({
 		o.inputstyle = 'action';
 		o.inputtitle = _('Upload...');
 		o.depends({'tls': '1', 'tls_cert_path': '/etc/homeproxy/certs/server_publickey.pem'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'tls_cert_path': '/etc/homeproxy/certs/server_publickey.pem'});
 		o.onclick = L.bind(hp.uploadCertificate, this, _('certificate'), 'server_publickey');
 		o.modalonly = true;
 
@@ -779,6 +934,7 @@ return view.extend({
 		o.depends({'tls': '1', 'tls_acme': '0', 'tls_reality': null});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': '0'});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': null});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
 		o.validate = hp.validateCertificatePath;
 		o.rmempty = false;
 		o.modalonly = true;
@@ -788,6 +944,7 @@ return view.extend({
 		o.inputstyle = 'action';
 		o.inputtitle = _('Upload...');
 		o.depends({'tls': '1', 'tls_key_path': '/etc/homeproxy/certs/server_privatekey.pem'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'tls_key_path': '/etc/homeproxy/certs/server_privatekey.pem'});
 		o.onclick = L.bind(hp.uploadCertificate, this, _('private key'), 'server_privatekey');
 		o.modalonly = true;
 

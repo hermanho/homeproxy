@@ -28,6 +28,15 @@ const log_level = uci.get(uciconfig, uciserver, 'log_level') || 'warn';
 
 const config = {};
 
+function server_tls(cfg) {
+	return (cfg.tls === '1') ? {
+		enabled: true,
+		server_name: cfg.tls_sni,
+		certificate_path: cfg.tls_cert_path,
+		key_path: cfg.tls_key_path
+	} : null;
+}
+
 /* Log */
 config.log = {
 	disabled: false,
@@ -37,10 +46,56 @@ config.log = {
 };
 
 config.inbounds = [];
+config.services = [];
+config.endpoints = [];
 
 uci.foreach(uciconfig, uciserver, (cfg) => {
 	if (cfg.enabled !== '1')
 		return;
+
+	if (cfg.type === 'hysteria-realm') {
+		push(config.services, {
+			type: 'hysteria-realm',
+			listen: cfg.address || '::',
+			listen_port: strToInt(cfg.port),
+			tls: server_tls(cfg),
+			users: (cfg.realm_token) ? [{
+				name: cfg.realm_user || 'homeproxy',
+				token: cfg.realm_token,
+				max_realms: strToInt(cfg.realm_max_realms)
+			}] : null
+		});
+		return;
+	}
+	if (cfg.type === 'openvpn-server') {
+		push(config.endpoints, {
+			type: 'openvpn-server',
+			tag: 'cfg-' + cfg['.name'] + '-endpoint',
+			listen: cfg.address || '::',
+			listen_port: strToInt(cfg.port),
+			system: false,
+			name: cfg.label,
+			mtu: strToInt(cfg.openvpn_mtu),
+			mode: cfg.openvpn_mode,
+			network: cfg.openvpn_network,
+			max_clients: strToInt(cfg.openvpn_max_clients),
+			address: cfg.openvpn_address,
+			users: (cfg.username || cfg.password) ? [{ username: cfg.username, password: cfg.password }] : null,
+			static_key_path: cfg.openvpn_static_key_path,
+			tls: (cfg.openvpn_mode !== 'static_key') ? {
+				certificate_path: cfg.tls_cert_path,
+				key_path: cfg.tls_key_path,
+				client_certificate_path: cfg.openvpn_client_certificate_path,
+				verify_client_certificate: cfg.openvpn_verify_client_certificate || 'none'
+			} : null,
+			push: {
+				dns_servers: cfg.openvpn_push_dns_servers,
+				search_domains: cfg.openvpn_push_search_domains,
+				redirect_gateway: strToBool(cfg.openvpn_push_redirect_gateway)
+			}
+		});
+		return;
+	}
 
 	push(config.inbounds, {
 		type: cfg.type,
@@ -58,20 +113,40 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 
 		/* AnyTLS */
 		padding_scheme: cfg.anytls_padding_scheme,
+		/* Snell */
+		version: (cfg.type === 'snell') ? strToInt(cfg.snell_version) : null,
+		psk: (cfg.type === 'snell') ? cfg.snell_psk : null,
+		obfs_mode: (cfg.type === 'snell') ? cfg.snell_obfs_mode : null,
+		mode: (cfg.type === 'snell') ? cfg.snell_mode : null,
 
 		/* Hysteria */
 		up_mbps: strToInt(cfg.hysteria_up_mbps),
 		down_mbps: strToInt(cfg.hysteria_down_mbps),
 		obfs: cfg.hysteria_obfs_type ? {
 			type: cfg.hysteria_obfs_type,
-			password: cfg.hysteria_obfs_password
+			password: cfg.hysteria_obfs_password,
+			min_packet_size: (cfg.hysteria_obfs_type === 'gecko') ? strToInt(cfg.hysteria_obfs_min_packet_size) : null,
+			max_packet_size: (cfg.hysteria_obfs_type === 'gecko') ? strToInt(cfg.hysteria_obfs_max_packet_size) : null
 		} : cfg.hysteria_obfs_password,
 		recv_window_conn: strToInt(cfg.hysteria_recv_window_conn),
-		recv_window_client: strToInt(cfg.hysteria_revc_window_client),
+		recv_window_client: strToInt(cfg.hysteria_recv_window_client),
 		max_conn_client: strToInt(cfg.hysteria_max_conn_client),
 		disable_mtu_discovery: strToBool(cfg.hysteria_disable_mtu_discovery),
 		ignore_client_bandwidth: strToBool(cfg.hysteria_ignore_client_bandwidth),
 		masquerade: cfg.hysteria_masquerade,
+		bbr_profile: (cfg.type === 'hysteria2') ? cfg.hysteria_bbr_profile : null,
+		realm: (cfg.type === 'hysteria2' && cfg.hysteria_realm_enabled === '1') ? {
+			server_url: cfg.hysteria_realm_server_url,
+			token: cfg.hysteria_realm_token,
+			realm_id: cfg.hysteria_realm_id,
+			stun_servers: cfg.hysteria_realm_stun_servers,
+			ip_version: strToInt(cfg.hysteria_realm_ip_version),
+			port_mapping: (cfg.hysteria_realm_port_mapping === '1') ? {
+				enabled: true,
+				timeout: strToTime(cfg.hysteria_realm_port_mapping_timeout),
+				lifetime: strToTime(cfg.hysteria_realm_port_mapping_lifetime)
+			} : null
+		} : null,
 
 		/* Shadowsocks */
 		method: (cfg.type === 'shadowsocks') ? cfg.shadowsocks_encrypt_method : null,
@@ -84,7 +159,10 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 		heartbeat: strToTime(cfg.tuic_heartbeat),
 
 		/* AnyTLS / HTTP / Hysteria (2) / Mixed / Socks / Trojan / Tuic / VLESS / VMess */
-		users: (cfg.type !== 'shadowsocks') ? [
+		users: (cfg.type === 'snell' && cfg.snell_userkey) ? [{
+			name: cfg.username || 'homeproxy',
+			userkey: cfg.snell_userkey
+		}] : ((cfg.type !== 'shadowsocks') ? [
 			{
 				name: !(cfg.type in ['http', 'mixed', 'naive', 'socks']) ? 'cfg-' + cfg['.name'] + '-server' : null,
 				username: cfg.username,
@@ -101,7 +179,7 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 				flow: cfg.vless_flow,
 				alterId: strToInt(cfg.vmess_alterid)
 			}
-		] : null,
+		] : null),
 
 		multiplex: (cfg.multiplex === '1') ? {
 			enabled: true,
@@ -122,14 +200,15 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 			cipher_suites: cfg.tls_cipher_suites,
 			certificate_path: cfg.tls_cert_path,
 			key_path: cfg.tls_key_path,
-			acme: (cfg.tls_acme === '1') ? {
+			certificate_provider: (cfg.tls_acme === '1') ? {
+				type: 'acme',
 				domain: cfg.tls_acme_domain,
 				data_directory: HP_DIR + '/certs',
 				default_server_name: cfg.tls_acme_dsn,
 				email: cfg.tls_acme_email,
 				provider: cfg.tls_acme_provider,
 				disable_http_challenge: strToBool(cfg.tls_acme_dhc),
-				disable_tls_alpn_challenge: (cfg.tls_acme_dtac),
+				disable_tls_alpn_challenge: strToBool(cfg.tls_acme_dtac),
 				alternative_http_port: strToInt(cfg.tls_acme_ahp),
 				alternative_tls_port: strToInt(cfg.tls_acme_atp),
 				external_account: (cfg.tls_acme_external_account === '1') ? {
@@ -178,8 +257,13 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 	});
 });
 
-if (length(config.inbounds) === 0)
+if (length(config.inbounds) === 0 && length(config.services) === 0 && length(config.endpoints) === 0)
 	exit(1);
+
+if (length(config.services) === 0)
+	config.services = null;
+if (length(config.endpoints) === 0)
+	config.endpoints = null;
 
 system('mkdir -p ' + RUN_DIR);
 writefile(RUN_DIR + '/sing-box-s.json', sprintf('%.J\n', removeBlankAttrs(config)));
