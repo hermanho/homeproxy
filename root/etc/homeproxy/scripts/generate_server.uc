@@ -86,7 +86,7 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 				certificate_path: cfg.tls_cert_path,
 				key_path: cfg.tls_key_path,
 				client_certificate_path: cfg.openvpn_client_certificate_path,
-				verify_client_certificate: cfg.openvpn_verify_client_certificate
+				verify_client_certificate: strToBool(cfg.openvpn_verify_client_certificate)
 			} : null,
 			push: {
 				dns_servers: cfg.openvpn_push_dns_servers,
@@ -129,7 +129,7 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 			max_packet_size: (cfg.hysteria_obfs_type === 'gecko') ? strToInt(cfg.hysteria_obfs_max_packet_size) : null
 		} : cfg.hysteria_obfs_password,
 		recv_window_conn: strToInt(cfg.hysteria_recv_window_conn),
-		recv_window_client: strToInt(cfg.hysteria_revc_window_client),
+		recv_window_client: strToInt(cfg.hysteria_recv_window_client),
 		max_conn_client: strToInt(cfg.hysteria_max_conn_client),
 		disable_mtu_discovery: strToBool(cfg.hysteria_disable_mtu_discovery),
 		ignore_client_bandwidth: strToBool(cfg.hysteria_ignore_client_bandwidth),
@@ -208,7 +208,7 @@ uci.foreach(uciconfig, uciserver, (cfg) => {
 				email: cfg.tls_acme_email,
 				provider: cfg.tls_acme_provider,
 				disable_http_challenge: strToBool(cfg.tls_acme_dhc),
-				disable_tls_alpn_challenge: (cfg.tls_acme_dtac),
+				disable_tls_alpn_challenge: strToBool(cfg.tls_acme_dtac),
 				alternative_http_port: strToInt(cfg.tls_acme_ahp),
 				alternative_tls_port: strToInt(cfg.tls_acme_atp),
 				external_account: (cfg.tls_acme_external_account === '1') ? {

@@ -660,6 +660,7 @@ return view.extend({
 		o.depends('type', 'http');
 		o.depends('type', 'hysteria');
 		o.depends('type', 'hysteria2');
+		o.depends('type', 'hysteria-realm');
 		o.depends('type', 'naive');
 		o.depends('type', 'trojan');
 		o.depends('type', 'tuic');
@@ -886,6 +887,7 @@ return view.extend({
 		o.depends({'tls': '1', 'tls_acme': '0', 'tls_reality': '0'});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': '0'});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': null});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
 		o.validate = hp.validateCertificatePath;
 		o.rmempty = false;
 		o.modalonly = true;
@@ -895,6 +897,7 @@ return view.extend({
 		o.inputstyle = 'action';
 		o.inputtitle = _('Upload...');
 		o.depends({'tls': '1', 'tls_cert_path': '/etc/homeproxy/certs/server_publickey.pem'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'tls_cert_path': '/etc/homeproxy/certs/server_publickey.pem'});
 		o.onclick = L.bind(hp.uploadCertificate, this, _('certificate'), 'server_publickey');
 		o.modalonly = true;
 
@@ -905,6 +908,7 @@ return view.extend({
 		o.depends({'tls': '1', 'tls_acme': '0', 'tls_reality': null});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': '0'});
 		o.depends({'tls': '1', 'tls_acme': null, 'tls_reality': null});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls'});
 		o.validate = hp.validateCertificatePath;
 		o.rmempty = false;
 		o.modalonly = true;
@@ -914,6 +918,7 @@ return view.extend({
 		o.inputstyle = 'action';
 		o.inputtitle = _('Upload...');
 		o.depends({'tls': '1', 'tls_key_path': '/etc/homeproxy/certs/server_privatekey.pem'});
+		o.depends({'type': 'openvpn-server', 'openvpn_mode': 'tls', 'tls_key_path': '/etc/homeproxy/certs/server_privatekey.pem'});
 		o.onclick = L.bind(hp.uploadCertificate, this, _('private key'), 'server_privatekey');
 		o.modalonly = true;
 

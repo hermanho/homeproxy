@@ -139,6 +139,7 @@ if (match(proxy_mode, /tun/)) {
 
 const log_level = uci.get(uciconfig, ucimain, 'log_level') || 'warn';
 const api_enabled = uci.get(uciconfig, ucimain, 'api_enabled') === '1';
+let dns_vpn_endpoints = [];
 /* UCI config end */
 
 /* Config helper start */
@@ -189,7 +190,6 @@ function generate_endpoint(node) {
 	const endpoint = {
 		type: (node.type === 'openvpn') ? 'openvpn-client' : node.type,
 		tag: 'cfg-' + node['.name'] + '-out',
-		address: node.wireguard_local_address,
 		mtu: (node.type === 'wireguard') ? strToInt(node.wireguard_mtu) : strToInt(node.vpn_mtu),
 		private_key: node.wireguard_private_key,
 		peers: (node.type === 'wireguard') ? [
@@ -598,6 +598,13 @@ if (!isEmpty(main_node)) {
 			return;
 		if (cfg.type in ['openconnect', 'openvpn'] && isEmpty(cfg.endpoint))
 			die(sprintf("DNS server '%s' requires a VPN endpoint.", cfg.label || cfg['.name']));
+		if (cfg.type in ['openconnect', 'openvpn']) {
+			const endpoint = uci.get_all(uciconfig, cfg.endpoint) || {};
+			if (endpoint.type !== cfg.type)
+				die(sprintf("DNS server '%s' must reference an endpoint of type %s.", cfg.label || cfg['.name'], cfg.type));
+		}
+		if (cfg.type in ['openconnect', 'openvpn'] && !~index(dns_vpn_endpoints, cfg.endpoint))
+			push(dns_vpn_endpoints, cfg.endpoint);
 
 		let outbound = get_outbound(cfg.outbound);
 		if (outbound === 'direct-out' && isEmpty(self_mark))
@@ -915,6 +922,16 @@ if (!isEmpty(main_node)) {
 		else
 			push(config.outbounds, generate_outbound(urltest_node));
 	}
+}
+
+/* VPN endpoints referenced only by pushed-DNS servers still need a config entry. */
+for (let i in dns_vpn_endpoints) {
+	const endpoint = uci.get_all(uciconfig, i) || {};
+	const tag = 'cfg-' + i + '-out';
+	if (!(endpoint.type in ['openconnect', 'openvpn']))
+		die(sprintf("DNS server references '%s', which is not an OpenConnect or OpenVPN endpoint.", i));
+	if (length(filter(config.endpoints, (cfg) => cfg.tag === tag)) === 0)
+		push(config.endpoints, generate_endpoint(endpoint));
 }
 
 if (isEmpty(config.endpoints))
