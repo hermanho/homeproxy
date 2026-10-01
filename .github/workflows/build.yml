@@ -159,6 +159,18 @@ jobs:
           name: ${{ env.BUILD_ARTIFACT_NAME }}
           path: ci-output
 
+      - name: Identify newly built APK
+        id: built_apk
+        run: |
+          # Capture the current package before retained versions enter the feed.
+          shopt -s nullglob
+          packages=(ci-output/feed/luci-app-homeproxy-*.apk)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "Expected exactly one newly built APK, found ${#packages[@]}" >&2
+            exit 1
+          fi
+          printf 'path=%s\n' "${packages[0]}" >> "$GITHUB_OUTPUT"
+
       - name: Restore retained APKs from GitHub Release feed
         env:
           GH_TOKEN: ${{ github.token }}
@@ -240,7 +252,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: signed-homeproxy-${{ github.sha }}.apk
-          path: ci-output/feed/luci-app-homeproxy-*.apk
+          path: ${{ steps.built_apk.outputs.path }}
           archive: false
           if-no-files-found: error
 
@@ -281,8 +293,7 @@ jobs:
         if: github.event_name == 'release'
         with:
           repo_token: ${{ github.token }}
-          file: ci-output/feed/luci-app-homeproxy-*.apk
-          file_glob: true
+          file: ${{ steps.built_apk.outputs.path }}
           tag: ${{ github.ref }}
 
   deploy:
