@@ -109,7 +109,7 @@ for (let i in control_options)
 
 const dns_redirect = uci.get(cfgname, 'infra', 'dns_redirect') || '1';
 const dns_hijacked = uci.get('dhcp', '@dnsmasq[0]', 'dns_redirect') || '0',
-      dns_port = uci.get('dhcp', '@dnsmasq[0]', 'port') || '53';
+      dns_port = uci.get(cfgname, 'infra', 'dns_port') || '5333';
 /* UCI config end */
 -%}
 
@@ -256,7 +256,7 @@ chain dstnat {
 	{% if (control_info.listen_interfaces): %}
 	meta iifname {{ array_to_nftarr(control_info.listen_interfaces) }}
 	{%- endif /* listen_interfaces */ %}
-	meta nfproto { ipv4, ipv6 } udp dport 53 counter redirect to :{{ dns_port }} comment "!{{ cfgname }}: DNS hijack"
+	meta nfproto { ipv4, ipv6 } meta l4proto { tcp, udp } th dport 53 counter redirect to :{{ dns_port }} comment "!{{ cfgname }}: DNS hijack"
 {% endif /* dns_hijacked */ %}
 {% if (match(proxy_mode, /redirect/)): %}
 	meta nfproto { {{ (ipv6_support === '1') ? 'ipv4, ipv6' : 'ipv4' }} } meta l4proto tcp jump homeproxy_redirect_lanac

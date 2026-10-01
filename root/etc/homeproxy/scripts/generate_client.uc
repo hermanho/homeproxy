@@ -513,6 +513,29 @@ if (!isEmpty(main_node)) {
 		});
 	}
 } else if (!isEmpty(default_outbound)) {
+	/* Keep dnsmasq's local zones ahead of custom DNS rules. */
+	uci.load('dhcp');
+	let local_domains = [];
+	for (let domain in split(uci.get('dhcp', '@dnsmasq[0]', 'local') || '', '/'))
+		if (length(domain))
+			push(local_domains, domain);
+	let local_domain = uci.get('dhcp', '@dnsmasq[0]', 'domain');
+	if (!isEmpty(local_domain) && index(local_domains, local_domain) < 0)
+		push(local_domains, local_domain);
+	if (length(local_domains)) {
+		push(config.dns.servers, {
+			tag: 'dnsmasq-local',
+			type: 'udp',
+			server: '127.0.0.1',
+			server_port: int(uci.get('dhcp', '@dnsmasq[0]', 'port') || '53')
+		});
+		push(config.dns.rules, {
+			domain_suffix: local_domains,
+			action: 'route',
+			server: 'dnsmasq-local'
+		});
+	}
+
 	/* DNS servers */
 	uci.foreach(uciconfig, ucidnsserver, (cfg) => {
 		if (cfg.enabled !== '1')
