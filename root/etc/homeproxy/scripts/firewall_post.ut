@@ -3,7 +3,7 @@
 {%-
 import { readfile } from 'fs';
 import { cursor } from 'uci';
-import { isEmpty } from '/etc/homeproxy/scripts/homeproxy.uc';
+import { isEmpty, getFakeIPConfig } from '/etc/homeproxy/scripts/homeproxy.uc';
 
 const fw4 = require('fw4');
 
@@ -106,6 +106,8 @@ const control_info = {};
 
 for (let i in control_options)
 	control_info[i] = uci.get(cfgname, 'control', i);
+
+const fakeip = getFakeIPConfig(uci);
 
 const dns_redirect = uci.get(cfgname, 'infra', 'dns_redirect') || '1';
 const dns_hijacked = uci.get('dhcp', '@dnsmasq[0]', 'dns_redirect') || '0',
@@ -551,6 +553,10 @@ chain homeproxy_mangle_lanac {
 	meta iifname != {{ array_to_nftarr(control_info.listen_interfaces) }} counter return
 	{% endif %}
 
+	{% if (fakeip.active): %}
+	ip daddr {{ fakeip.range }} counter goto homeproxy_mangle_tun
+	{% endif %}
+
 	{% if (control_info.lan_proxy_mode === 'listed_only'): %}
 	{% if (!isEmpty(control_info.lan_proxy_ipv4_ips)): %}
 	ip saddr {{ array_to_nftarr(control_info.lan_proxy_ipv4_ips) }} counter goto homeproxy_mangle_tun
@@ -591,6 +597,10 @@ chain homeproxy_mangle_tun_mark {
 
 chain homeproxy_mangle_tun {
 	iifname {{ tun_name }} counter return
+
+	{% if (fakeip.active): %}
+	ip daddr {{ fakeip.range }} counter meta mark set {{ tun_mark }} return comment "!homeproxy: Fake-IP"
+	{% endif %}
 
 	ip daddr @homeproxy_wan_proxy_addr_v4 counter goto homeproxy_mangle_tun_mark
 	{% if (ipv6_support === '1'): %}

@@ -3049,3 +3049,45 @@ msgstr ""
 #: htdocs/luci-static/resources/homeproxy.js:328
 msgid "valid uuid"
 msgstr ""
+
+msgid "Enable Fake-IP"
+msgstr ""
+
+msgid "Use Fake-IP for the configured domains on all devices querying HomeProxy DNS. Requires custom routing, TUN mode and IPv4 only. Real DNS and outbound selection continue to use the existing rules. Disabling stops new assignments but retains saved mappings for cached client addresses."
+msgstr ""
+
+msgid "Fake-IP requires TUN mode and IPv4 only."
+msgstr ""
+
+msgid "Fake-IP IPv4 range"
+msgstr ""
+
+msgid "Use a network within 198.18.0.0/15. Changing the range within the same boot requires clearing client DNS caches and runtime Fake-IP state."
+msgstr ""
+
+msgid "Expecting a network address within 198.18.0.0/15."
+msgstr ""
+
+msgid "Fake-IP Rules"
+msgstr ""
+
+msgid "Fake-IP rule"
+msgstr ""
+
+msgid "Add a Fake-IP rule"
+msgstr ""
+
+msgid "Configure a domain matcher before enabling this rule."
+msgstr ""
+
+msgid "Match domain using regular expression. Expressions are checked by sing-box when applying the configuration."
+msgstr ""
+
+msgid "Use domain-only rule sets. At least one domain matcher is required. Rules match A queries; matching AAAA, HTTPS and SVCB queries return no data during IPv4-only operation."
+msgstr ""
+
+msgid "Fake-IP TTL"
+msgstr ""
+
+msgid "DNS reply TTL in seconds (1–300). Defaults to 120 seconds (2 minutes). Mappings are kept in runtime storage and are lost when the router reboots."
+msgstr ""

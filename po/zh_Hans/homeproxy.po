@@ -3119,3 +3119,45 @@ msgstr "有效端口值"
 #: htdocs/luci-static/resources/homeproxy.js:328
 msgid "valid uuid"
 msgstr "有效 uuid"
+
+msgid "Enable Fake-IP"
+msgstr "启用 Fake-IP"
+
+msgid "Use Fake-IP for the configured domains on all devices querying HomeProxy DNS. Requires custom routing, TUN mode and IPv4 only. Real DNS and outbound selection continue to use the existing rules. Disabling stops new assignments but retains saved mappings for cached client addresses."
+msgstr "对所有向 HomeProxy DNS 查询的设备，按配置的域名使用 Fake-IP。需要自定义路由、TUN 模式并关闭 IPv6。真实 DNS 和出口仍由现有规则选择。停用后不再分配新地址，但保留已保存的映射以处理客户端缓存的地址。"
+
+msgid "Fake-IP requires TUN mode and IPv4 only."
+msgstr "Fake-IP 需要 TUN 模式并关闭 IPv6。"
+
+msgid "Fake-IP IPv4 range"
+msgstr "Fake-IP IPv4 地址范围"
+
+msgid "Use a network within 198.18.0.0/15. Changing the range within the same boot requires clearing client DNS caches and runtime Fake-IP state."
+msgstr "使用 198.18.0.0/15 内的网段。在同一次启动期间更改范围，需要清除客户端 DNS 缓存和运行时 Fake-IP 状态。"
+
+msgid "Expecting a network address within 198.18.0.0/15."
+msgstr "请输入 198.18.0.0/15 内的网络地址。"
+
+msgid "Fake-IP Rules"
+msgstr "Fake-IP 规则"
+
+msgid "Fake-IP rule"
+msgstr "Fake-IP 规则"
+
+msgid "Add a Fake-IP rule"
+msgstr "添加 Fake-IP 规则"
+
+msgid "Configure a domain matcher before enabling this rule."
+msgstr "启用此规则前，请配置域名匹配条件。"
+
+msgid "Match domain using regular expression. Expressions are checked by sing-box when applying the configuration."
+msgstr "使用正则表达式匹配域名。应用配置时由 sing-box 检查表达式。"
+
+msgid "Use domain-only rule sets. At least one domain matcher is required. Rules match A queries; matching AAAA, HTTPS and SVCB queries return no data during IPv4-only operation."
+msgstr "仅使用包含域名条件的规则集。至少需要一个域名匹配条件。规则匹配 A 查询；在仅 IPv4 模式下，匹配的 AAAA、HTTPS 和 SVCB 查询返回空数据。"
+
+msgid "Fake-IP TTL"
+msgstr "Fake-IP TTL"
+
+msgid "DNS reply TTL in seconds (1–300). Defaults to 120 seconds (2 minutes). Mappings are kept in runtime storage and are lost when the router reboots."
+msgstr "DNS 回复 TTL，单位为秒（1–300），默认 120 秒（2 分钟）。映射保存在运行时存储中，路由器重启后会丢失。"

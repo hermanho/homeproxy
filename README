@@ -41,6 +41,57 @@ connections that have no reverse-DNS entry.
 The option defaults to disabled, preserving upstream behaviour until it is
 explicitly enabled.
 
+### IPv4 Fake-IP
+
+Custom routing in TUN mode can enable **Fake-IP** under DNS Settings, with
+IPv6 support disabled. **Fake-IP Rules** uses the existing list controls for
+full domains, domain suffixes, domain regexes and domain-only rule sets. Rules
+apply to all devices whose DNS queries reach HomeProxy, with no source IP
+restriction. At least one domain matcher is required for every enabled rule.
+Do not use rule sets containing response IP filters or unrelated match conditions.
+
+Matching A queries receive an address from the configured subnet within
+`198.18.0.0/15`, with a default DNS TTL of 120 seconds (2 minutes). **Fake-IP TTL** accepts
+1–300 seconds and does not alter the real upstream DNS TTL or expire the saved
+IP-to-domain mapping. Matching AAAA, HTTPS and SVCB queries return NOERROR with no
+records during this IPv4-only mode. Local dnsmasq zones remain ahead of these
+rules. Existing real DNS and routing rules must still cover the selected
+domains; Fake-IP does not select an outbound or replace those rules.
+
+Fake-IP destinations are restored before the first custom routing pass.
+WireGuard endpoints in sing-box 1.13.21 resolve restored destination domains
+through normal DNS matching, skipping Fake-IP servers. This allows an existing
+regional DNS rule to perform real resolution. Other outbound types may require
+their own domain resolver configuration; do not assume their resolver behaves
+like a WireGuard endpoint. DNS filtering occurs during real resolution, so a
+blocked domain may first receive a Fake-IP and then fail to connect.
+
+Configured Fake-IP traffic enters TUN before local-address and common-port
+bypasses, including when its source device is otherwise bypassed. Only issue
+Fake-IP to devices whose DNS queries reach HomeProxy. The reserved range must
+not overlap another network used on the router.
+
+Mappings use the existing runtime cache at `/var/run/homeproxy/cache.db`.
+They survive ordinary service restarts within the same boot, but are lost when
+the router reboots; there is no persistent Fake-IP cache or sysupgrade backup.
+Disabling Fake-IP stops new assignments but retains runtime mappings and
+firewall handling for clients with cached addresses until reboot. To change the
+range or leave custom IPv4 TUN mode within the same boot, disable issuance,
+clear affected clients' DNS caches and connections, stop HomeProxy, remove
+`/var/run/homeproxy/fakeip-range` and `/var/run/homeproxy/cache.db`, then apply
+the new configuration.
+
+This does not add CNAME flattening or follow an incomplete CNAME-only answer.
+The real upstream must return the final A/AAAA records. Before enabling a
+region's full domain set, test DNS, routing, filtering and actual application
+traffic for a selected domain.
+
+`tests/check_fakeip.py` renders isolated UCI fixtures with an OpenWrt target's
+ucode, utpl, sing-box and nft tools. It checks disabled/enabled/draining states,
+domain matchers, unrestricted sources, generated configuration and firewall ordering.
+It uses a temporary loopback-only DNS instance to verify reply TTL, and does
+not install files, modify live UCI, or change the running HomeProxy service.
+
 ### Signed APK feed
 
 GitHub Actions builds an APKv3 package and, for pushes to `dev` or published
