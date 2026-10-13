@@ -14,7 +14,7 @@ import { cursor } from 'uci';
 
 import {
 	isEmpty, parseURL, strToBool, strToInt, strToTime,
-	removeBlankAttrs, validation, HP_DIR, RUN_DIR
+	removeBlankAttrs, validation, getFakeIPConfig, HP_DIR, RUN_DIR
 } from 'homeproxy';
 
 const ubus = connect();
@@ -104,7 +104,10 @@ if (routing_mode !== 'custom') {
 	sniff_override = uci.get(uciconfig, uciroutingsetting, 'sniff_override');
 }
 
+const fakeip = getFakeIPConfig(uci);
+
 const custom_reverse_mapping = routing_mode === 'custom' && dns_reverse_mapping === '1';
+const custom_domain_routing = custom_reverse_mapping || fakeip.active;
 
 const proxy_mode = uci.get(uciconfig, ucimain, 'proxy_mode') || 'redirect_tproxy',
       default_interface = uci.get(uciconfig, ucicontrol, 'bind_interface');
@@ -536,6 +539,39 @@ if (!isEmpty(main_node)) {
 		});
 	}
 
+	/* Retain the server while draining saved mappings after disabling issuance. */
+	if (fakeip.active)
+		push(config.dns.servers, {
+			tag: 'fakeip-dns', type: 'fakeip', inet4_range: fakeip.range
+		});
+
+	if (fakeip.enabled) {
+		let count = 0;
+		uci.foreach(uciconfig, 'fakeip_rule', (cfg) => {
+			if (cfg.enabled !== '1')
+				return;
+			if (isEmpty(cfg.domain) && isEmpty(cfg.domain_suffix) &&
+			    isEmpty(cfg.domain_regex) && isEmpty(cfg.rule_set))
+				die('Fake-IP rules require a domain matcher.\n');
+			const matcher = {
+				domain: cfg.domain, domain_suffix: cfg.domain_suffix,
+				domain_regex: cfg.domain_regex, rule_set: get_ruleset(cfg.rule_set)
+			};
+			/* Domain-only rule sets must not contain response IP filters. */
+			push(config.dns.rules, {
+				...matcher, query_type: ['A'], action: 'route', server: 'fakeip-dns',
+				rewrite_ttl: fakeip.ttl
+			});
+			push(config.dns.rules, {
+				...matcher, query_type: ['AAAA', 'HTTPS', 'SVCB'],
+				action: 'predefined', rcode: 'NOERROR'
+			});
+			count++;
+		});
+		if (!count)
+			die('Enable at least one Fake-IP rule before enabling Fake-IP.\n');
+	}
+
 	/* DNS servers */
 	uci.foreach(uciconfig, ucidnsserver, (cfg) => {
 		if (cfg.enabled !== '1')
@@ -633,8 +669,8 @@ push(config.inbounds, {
 	listen: '::',
 	listen_port: int(mixed_port),
 	udp_timeout: strToTime(udp_timeout),
-	sniff: custom_reverse_mapping ? null : true,
-	sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override),
+	sniff: custom_domain_routing ? null : true,
+	sniff_override_destination: custom_domain_routing ? null : strToBool(sniff_override),
 	set_system_proxy: false
 });
 
@@ -645,8 +681,8 @@ if (match(proxy_mode, /redirect/))
 
 		listen: '::',
 		listen_port: int(redirect_port),
-		sniff: custom_reverse_mapping ? null : true,
-		sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override)
+		sniff: custom_domain_routing ? null : true,
+		sniff_override_destination: custom_domain_routing ? null : strToBool(sniff_override)
 	});
 if (match(proxy_mode, /tproxy/))
 	push(config.inbounds, {
@@ -657,8 +693,8 @@ if (match(proxy_mode, /tproxy/))
 		listen_port: int(tproxy_port),
 		network: 'udp',
 		udp_timeout: strToTime(udp_timeout),
-		sniff: custom_reverse_mapping ? null : true,
-		sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override)
+		sniff: custom_domain_routing ? null : true,
+		sniff_override_destination: custom_domain_routing ? null : strToBool(sniff_override)
 	});
 if (match(proxy_mode, /tun/))
 	push(config.inbounds, {
@@ -672,8 +708,8 @@ if (match(proxy_mode, /tun/))
 		endpoint_independent_nat: strToBool(endpoint_independent_nat),
 		udp_timeout: strToTime(udp_timeout),
 		stack: tcpip_stack,
-		sniff: custom_reverse_mapping ? null : true,
-		sniff_override_destination: custom_reverse_mapping ? null : strToBool(sniff_override)
+		sniff: custom_domain_routing ? null : true,
+		sniff_override_destination: custom_domain_routing ? null : strToBool(sniff_override)
 	});
 /* Inbound end */
 
@@ -959,9 +995,9 @@ if (!isEmpty(main_node)) {
 		});
 	});
 
-	if (custom_reverse_mapping) {
+	if (custom_domain_routing) {
 		/*
-		 * Prefer DNS reverse-mapped domains before sniffing. A TLS ClientHello
+		 * Prefer Fake-IP and DNS reverse-mapped domains before sniffing. A TLS ClientHello
 		 * without SNI clears the sniffed domain in sing-box, so sniff only after
 		 * the first custom-rule pass and retry the rules with sniffed metadata.
 		 */
@@ -1004,6 +1040,7 @@ if (routing_mode in ['bypass_mainland_china', 'custom']) {
 		cache_file: {
 			enabled: true,
 			path: RUN_DIR + '/cache.db',
+			store_fakeip: fakeip.active ? true : null,
 			store_rdrc: strToBool(cache_file_store_rdrc),
 			rdrc_timeout: strToTime(cache_file_rdrc_timeout),
 		}

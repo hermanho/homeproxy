@@ -10,6 +10,7 @@
 'require poll';
 'require rpc';
 'require uci';
+'require ui';
 'require validation';
 'require view';
 
@@ -922,6 +923,40 @@ return view.extend({
 		so.default = so.disabled;
 		so.rmempty = false;
 
+		so = ss.option(form.Flag, 'fakeip_enabled', _('Enable Fake-IP'),
+			_('Use Fake-IP for the configured domains on all devices querying HomeProxy DNS. Requires custom routing, TUN mode and IPv4 only. Real DNS and outbound selection continue to use the existing rules. Disabling stops new assignments but retains saved mappings for cached client addresses.'));
+		so.default = so.disabled;
+		so.rmempty = false;
+		so.validate = function(section_id, value) {
+			if (value !== '1')
+				return true;
+			const field = (name) => this.map.lookupOption(name, 'config')[0]?.formvalue('config') ?? uci.get(data[0], 'config', name);
+			return (field('proxy_mode') === 'tun' && field('ipv6_support') !== '1') ||
+				_('Fake-IP requires TUN mode and IPv4 only.');
+		};
+
+		so = ss.option(form.Value, 'fakeip_ttl', _('Fake-IP TTL'),
+			_('DNS reply TTL in seconds (1–300). Defaults to 120 seconds (2 minutes). Mappings are kept in runtime storage and are lost when the router reboots.'));
+		so.default = '120';
+		so.datatype = 'range(1,300)';
+		so.rmempty = false;
+		so.depends('fakeip_enabled', '1');
+
+		so = ss.option(form.Value, 'fakeip_range', _('Fake-IP IPv4 range'),
+			_('Use a network within 198.18.0.0/15. Changing the range within the same boot requires clearing client DNS caches and runtime Fake-IP state.'));
+		so.default = '198.18.0.0/15';
+		/* LuCI cidr4 mutates the callback value to the prefix. Validate the full input here. */
+		so.datatype = 'string';
+		so.rmempty = false;
+		so.depends('fakeip_enabled', '1');
+		so.validate = function(section_id, value) {
+			const m = /^(198)\.(18|19)\.(\d{1,3})\.(\d{1,3})\/(1[5-9]|2\d|30)$/.exec(value || '');
+			if (!m || +m[3] > 255 || +m[4] > 255 ||
+			    ((+m[2] - 18) * 65536 + +m[3] * 256 + +m[4]) % Math.pow(2, 32 - +m[5]))
+				return _('Expecting a network address within 198.18.0.0/15.');
+			return true;
+		};
+
 		so = ss.option(form.Value, 'client_subnet', _('EDNS Client subnet'),
 			_('Append a <code>edns0-subnet</code> OPT extra record with the specified IP prefix to every query by default.<br/>' +
 			'If value is an IP address instead of prefix, <code>/32</code> or <code>/128</code> will be appended automatically.'));
@@ -1322,6 +1357,69 @@ return view.extend({
 			_('Match process path using regular expression.'));
 		so.modalonly = true;
 		/* DNS rules end */
+		/* Fake-IP rules use the same list controls as DNS and routing rules. */
+		s.tab('fakeip', _('Fake-IP Rules'));
+		o = s.taboption('fakeip', form.SectionValue, '_fakeip_rules', form.GridSection, 'fakeip_rule');
+		o.depends({ routing_mode: 'custom', proxy_mode: 'tun', ipv6_support: '0' });
+		ss = o.subsection;
+		ss.addremove = true;
+		ss.rowcolors = true;
+		ss.sortable = true;
+		ss.nodescriptions = true;
+		ss.modaltitle = L.bind(hp.loadModalTitle, this, _('Fake-IP rule'), _('Add a Fake-IP rule'), data[0]);
+		ss.sectiontitle = L.bind(hp.loadDefaultLabel, this, data[0]);
+		ss.renderSectionAdd = L.bind(hp.renderSectionAdd, this, ss);
+		/* Check current modal values on Save, rather than caching validation on Enable. */
+		ss.handleModalSave = function(modalMap, ev) {
+			const section_id = modalMap.section;
+			const value = (name) => modalMap.lookupOption(name, section_id)[0]?.formvalue(section_id);
+			const hasMatcher = ['domain', 'domain_suffix', 'domain_regex', 'rule_set'].some((name) => {
+				const entries = value(name);
+				return (Array.isArray(entries) ? entries : [entries]).some((entry) =>
+					typeof entry === 'string' && entry.trim().length > 0);
+			});
+			if (value('enabled') === '1' && !hasMatcher) {
+				ui.addNotification(null, E('p', {}, _('Configure a domain matcher before enabling this rule.')), 'warning');
+				return Promise.resolve();
+			}
+			return this.super('handleModalSave', [modalMap, ev]);
+		};
+
+		so = ss.option(form.Value, 'label', _('Label'));
+		so.load = L.bind(hp.loadDefaultLabel, this, data[0]);
+		so.validate = L.bind(hp.validateUniqueValue, this, data[0], 'fakeip_rule', 'label');
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, 'enabled', _('Enable'));
+		so.default = so.enabled;
+		so.rmempty = false;
+		so.editable = true;
+
+		so = ss.option(form.DynamicList, 'domain', _('Domain'), _('Match full domain.'));
+		so.datatype = 'hostname';
+		so.modalonly = true;
+
+		so = ss.option(form.DynamicList, 'domain_suffix', _('Domain suffix'), _('Match domain suffix.'));
+		so.modalonly = true;
+
+		so = ss.option(form.DynamicList, 'domain_regex', _('Domain regex'),
+			_('Match domain using regular expression. Expressions are checked by sing-box when applying the configuration.'));
+		so.modalonly = true;
+
+		so = ss.option(hp.CBIStaticList, 'rule_set', _('Rule set'),
+			_('Use domain-only rule sets. At least one domain matcher is required. Rules match A queries; matching AAAA, HTTPS and SVCB queries return no data during IPv4-only operation.'));
+		so.load = function(section_id) {
+			delete this.keylist;
+			delete this.vallist;
+			uci.sections(data[0], 'ruleset', (res) => {
+				if (res.enabled === '1')
+					this.value(res['.name'], res.label);
+			});
+			return this.super('load', section_id);
+		};
+		so.modalonly = true;
+
+
 		/* Custom routing settings end */
 
 		/* Rule set settings start */
