@@ -7,9 +7,13 @@ an APK-only CI output and trusted package feed for apk-based OpenWrt systems.
 The upstream OpenWrt package Makefile remains available; only this fork's
 standalone GitHub workflow is APK-only.
 
-The fork has been tested with OpenWrt 25.12, `apk-tools` 3.0.5 and sing-box
-1.12.25. The HomeProxy package itself is `noarch`; its runtime dependencies are
-still supplied by the configured OpenWrt or ImmortalWrt repositories.
+The fork requires sing-box **1.14.0 or newer**. The APK metadata enforces this
+at installation time and HomeProxy checks it again before starting. The
+HomeProxy package itself is `noarch`; its runtime dependencies are still
+supplied by the configured OpenWrt or ImmortalWrt repositories.
+
+See [CHANGELOG.md](CHANGELOG.md) for upgrade-impacting changes and official
+sing-box references.
 
 ## Differences from upstream
 
@@ -145,6 +149,10 @@ apk update
 apk policy luci-app-homeproxy
 apk add luci-app-homeproxy
 ```
+
+`apk policy sing-box` must show a candidate at version 1.14.0 or newer. If it
+does not, upgrade or enable the matching ImmortalWrt/OpenWrt package feed
+before installing HomeProxy.
 
 Do not use `--allow-untrusted`. If signature verification fails, stop and check
 the downloaded public-key fingerprint and feed URL rather than bypassing
