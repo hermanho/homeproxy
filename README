@@ -64,7 +64,10 @@ The `master` branch is reserved as an upstream mirror. Pushes to `master` and
 pull requests produce unsigned artifacts and never receive the production
 signing secret. The `dev` branch contains this fork's published changes.
 Production signing is isolated in the `feed-production` GitHub Environment.
-The private signing key is not stored in this repository.
+The private signing key is not stored in this repository. Since 2026-10-22,
+HomeProxy and hermanho/openwrt-it87 use the same signing key. Existing installations
+using an older key must replace their trusted public key before updating the feed;
+the bootstrap commands below intentionally refuse to overwrite a different key.
 
 ### ImmortalWrt-style package versions
 
@@ -90,7 +93,7 @@ package changes before distributing a build.
 The public signing key is intentionally public. Its SHA-256 fingerprint is:
 
 ```text
-fb625db9f36e116cc3b873e0ebe2e1e79d583b1d8863ffeeb65e76a7d32b751d
+6482e69befdf634c47511007055c66b9101b47ba24d8f2fe2cd87df1d67c618e
 ```
 
 The initial trust decision still depends on trusting this repository. For a
@@ -110,7 +113,7 @@ for cmd in apk awk chmod cp grep mkdir mktemp rm sha256sum touch wget; do
   }
 done
 
-EXPECTED_KEY_SHA256='fb625db9f36e116cc3b873e0ebe2e1e79d583b1d8863ffeeb65e76a7d32b751d'
+EXPECTED_KEY_SHA256='6482e69befdf634c47511007055c66b9101b47ba24d8f2fe2cd87df1d67c618e'
 KEY_FILE='/etc/apk/keys/homeproxy-feed.pem'
 KEY_DOWNLOAD="$(mktemp /tmp/homeproxy-feed.XXXXXX)"
 trap 'rm -f "$KEY_DOWNLOAD"' EXIT
