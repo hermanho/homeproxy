@@ -27,6 +27,21 @@ log() {
 	echo -e "$(date "+%Y-%m-%d %H:%M:%S") [DAEMON] $*" >> "$LOG_PATH"
 }
 
+singbox_1_14_or_newer() {
+	local version major minor patch
+	version="$("$PROG" version 2>/dev/null | sed -n 's/.* \([0-9][0-9.]*\).*/\1/p' | head -n 1)"
+	case "$version" in
+		[0-9]*.[0-9]*.[0-9]*) ;;
+		*) return 1 ;;
+	esac
+
+	major="${version%%.*}"
+	version="${version#*.}"
+	minor="${version%%.*}"
+	patch="${version#*.}"
+	[ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && { [ "$minor" -gt 14 ] || { [ "$minor" -eq 14 ] && [ "$patch" -ge 0 ]; }; }; }
+}
+
 start_service() {
 	config_load "$CONF"
 
@@ -34,23 +49,31 @@ start_service() {
 	config_get routing_mode "config" "routing_mode" "bypass_mainland_china"
 	config_get proxy_mode "config" "proxy_mode" "redirect_tproxy"
 
-	local outbound_node
+	local outbound_node client_enabled api_enabled
 	if [ "$routing_mode" != "custom" ]; then
 		config_get outbound_node "config" "main_node" "nil"
 	else
 		config_get outbound_node "routing" "default_outbound" "nil"
 	fi
+	config_get_bool api_enabled "config" "api_enabled" "0"
+	[ "$outbound_node" = "nil" ] || client_enabled=1
+	[ "$api_enabled" = "0" ] || client_enabled=1
 
 	local server_enabled
 	config_get_bool server_enabled "server" "enabled" "0"
 
-	if [ "$outbound_node" = "nil" ] && [ "$server_enabled" = "0" ]; then
+	if [ "$client_enabled" != "1" ] && [ "$server_enabled" = "0" ]; then
 		return 1
 	fi
 
 	mkdir -p "$RUN_DIR"
 
-	if [ "$outbound_node" != "nil" ]; then
+	if ! singbox_1_14_or_newer; then
+		log "Error: HomeProxy requires sing-box 1.14.0 or newer."
+		return 1
+	fi
+
+	if [ "$client_enabled" = "1" ]; then
 		# Generate/Validate client config
 		ucode -S "$HP_DIR/scripts/generate_client.uc" 2>>"$LOG_PATH"
 
@@ -236,7 +259,7 @@ start_service() {
 		;;
 	esac
 
-	[ "$outbound_node" = "nil" ] || echo > "$RUN_DIR/sing-box-c.log"
+	[ "$client_enabled" = "1" ] && echo > "$RUN_DIR/sing-box-c.log"
 	if [ "$server_enabled" = "1" ]; then
 		echo > "$RUN_DIR/sing-box-s.log"
 		mkdir -p "$HP_DIR/certs"

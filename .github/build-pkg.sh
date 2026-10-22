@@ -49,6 +49,7 @@ function get_source_revision() {
 }
 
 PKG_NAME="$(get_mk_value "PKG_NAME")"
+SING_BOX_MIN_VERSION="$(get_mk_value "SING_BOX_MIN_VERSION")"
 PKG_VERSION="$(get_source_revision)"
 PKG_SOURCE_DATE_EPOCH="$(git -C "$PKG_DIR" show -s --format='%ct' \
 	"${SOURCE_COMMIT:-${GITHUB_SHA:-HEAD}}")"
@@ -139,7 +140,7 @@ default_prerm' > "$TEMP_DIR/pre-deinstall"
 		--script "post-install:$TEMP_DIR/post-install" \
 		--script "post-upgrade:$TEMP_DIR/post-upgrade" \
 		--script "pre-deinstall:$TEMP_DIR/pre-deinstall" \
-		--info "depends:libc sing-box firewall4 kmod-nft-tproxy ucode-mod-digest" \
+		--info "depends:libc sing-box>=$SING_BOX_MIN_VERSION firewall4 kmod-nft-tproxy ucode-mod-digest" \
 		--files "$TEMP_PKG_DIR" \
 		--output "$TEMP_DIR/${PKG_NAME}-${PKG_VERSION}.apk"
 
@@ -150,7 +151,7 @@ else
 	cat > "$TEMP_PKG_DIR/CONTROL/control" <<-EOF
 		Package: $PKG_NAME
 		Version: $PKG_VERSION
-		Depends: libc, sing-box, firewall4, kmod-nft-tproxy, ucode-mod-digest
+		Depends: libc, sing-box (>= $SING_BOX_MIN_VERSION), firewall4, kmod-nft-tproxy, ucode-mod-digest
 		Source: https://github.com/immortalwrt/homeproxy
 		SourceName: $PKG_NAME
 		Section: luci
