@@ -4,13 +4,39 @@
  * Copyright (C) 2023 ImmortalWrt.org
  */
 
-import { mkstemp } from 'fs';
+import { mkstemp, readfile } from 'fs';
 import { urldecode_params } from 'luci.http';
 
 /* Global variables start */
 export const HP_DIR = '/etc/homeproxy';
 export const RUN_DIR = '/var/run/homeproxy';
 /* Global variables end */
+
+/* IPv4-only Fake-IP is deliberately limited to custom TUN routing. */
+export function getFakeIPConfig(uci) {
+	const enabled = uci.get('homeproxy', 'dns', 'fakeip_enabled') === '1';
+	const stored = trim(readfile(RUN_DIR + '/fakeip-range') || '');
+	const range = uci.get('homeproxy', 'dns', 'fakeip_range') || stored || '198.18.0.0/15';
+	const active = enabled || !!stored;
+	const ttl = uci.get('homeproxy', 'dns', 'fakeip_ttl') || '120';
+	if (active) {
+		if (uci.get('homeproxy', 'config', 'routing_mode') !== 'custom' ||
+		    uci.get('homeproxy', 'config', 'proxy_mode') !== 'tun' ||
+		    uci.get('homeproxy', 'config', 'ipv6_support') === '1')
+			die('Fake-IP requires custom routing, TUN mode and IPv4 only.\n');
+		if (!match(ttl, /^[0-9]+$/) || +ttl < 1 || +ttl > 300)
+			die('Fake-IP TTL must be between 1 and 300 seconds.\n');
+		const parts = match(range, /^198\.(18|19)\.([0-9]{1,3})\.([0-9]{1,3})\/(1[5-9]|2[0-9]|30)$/);
+		if (!parts || +parts[2] > 255 || +parts[3] > 255)
+			die('Fake-IP range must be an IPv4 subnet within 198.18.0.0/15.\n');
+		const addr = (+parts[1] - 18) * 65536 + +parts[2] * 256 + +parts[3];
+		if (addr % (2 ** (32 - +parts[4])))
+			die('Fake-IP range must use a network address.\n');
+		if (stored && stored !== range)
+			die('Clear client DNS caches and saved Fake-IP state before changing its range.\n');
+	}
+	return { enabled, active, range, ttl: +ttl };
+};
 
 /* Utilities start */
 /* Kanged from luci-app-commands */

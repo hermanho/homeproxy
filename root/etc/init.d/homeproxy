@@ -52,7 +52,10 @@ start_service() {
 
 	if [ "$outbound_node" != "nil" ]; then
 		# Generate/Validate client config
-		ucode -S "$HP_DIR/scripts/generate_client.uc" 2>>"$LOG_PATH"
+		if ! ucode -S "$HP_DIR/scripts/generate_client.uc" 2>>"$LOG_PATH"; then
+			log "Error: failed to generate client configuration."
+			return 1
+		fi
 
 		if [ ! -e "$RUN_DIR/sing-box-c.json" ]; then
 			log "Error: failed to generate client configuration."
@@ -60,6 +63,14 @@ start_service() {
 		elif ! "$PROG" check --config "$RUN_DIR/sing-box-c.json" 2>>"$LOG_PATH"; then
 			log "Error: wrong client configuration detected."
 			return 1
+		fi
+
+		# Keep mappings and the range marker within this boot only.
+		if [ "$(uci -q get homeproxy.dns.fakeip_enabled)" = "1" ] || [ -s "$RUN_DIR/fakeip-range" ]; then
+			local fakeip_range
+			fakeip_range="$(uci -q get homeproxy.dns.fakeip_range)"
+			[ -n "$fakeip_range" ] || fakeip_range="$(cat "$RUN_DIR/fakeip-range" 2>/dev/null)"
+			echo "${fakeip_range:-198.18.0.0/15}" > "$RUN_DIR/fakeip-range"
 		fi
 
 		# Auto update
