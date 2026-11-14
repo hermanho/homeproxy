@@ -33,10 +33,12 @@ generated configuration then:
 4. evaluates the custom route rules again using any domain discovered by
    sniffing.
 
-Inbound legacy sniffing is disabled only while the Reverse DNS mapping option
-is active in custom routing mode. This avoids an empty TLS SNI overwriting a
-domain recovered from DNS, while retaining SNI and HTTP Host routing for
-connections that have no reverse-DNS entry.
+Sniffing uses route-level actions rather than the removed legacy inbound
+options. When Reverse DNS mapping or Fake-IP is active in custom routing mode,
+sniffing is deferred until after the first custom-rule pass. This avoids an
+empty TLS SNI overwriting a domain recovered from DNS before routing, while
+retaining SNI and HTTP Host routing for connections with no matching rule.
+Other modes sniff before evaluating routing rules.
 
 The option defaults to disabled, preserving upstream behaviour until it is
 explicitly enabled.

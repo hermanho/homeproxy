@@ -121,6 +121,8 @@ check_ttl() {
 }
 cp "$TASK_DIR/base" "$TASK_DIR/config/homeproxy"
 run_case disabled >&2
+sed "s/option reverse_mapping '1'/option reverse_mapping '0'/" "$TASK_DIR/base" > "$TASK_DIR/config/homeproxy"
+run_case ordinary >&2
 sed "s/option fakeip_enabled '0'/option fakeip_enabled '1'/" "$TASK_DIR/base" > "$TASK_DIR/config/homeproxy"
 run_case enabled >&2
 sed -i "/config fakeip_rule 'pilot'/a\\ list source_ip_cidr '192.168.10.101'" "$TASK_DIR/config/homeproxy"
@@ -194,7 +196,29 @@ with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
                 for item in archive if item.isfile()}
 
 configs = {case: json.loads(contents[case + '.json'])
-           for case in ['disabled', 'enabled', 'legacy_source', 'draining', 'after_reboot', 'ruleset', 'no_reverse', 'custom_ttl']}
+           for case in ['disabled', 'ordinary', 'enabled', 'legacy_source', 'draining', 'after_reboot', 'ruleset', 'no_reverse', 'custom_ttl']}
+# Recovered domains must reach custom rules before the sole sniff action.
+# Cover reverse mapping alone, Fake-IP alone, both, and draining mappings.
+for case in ['disabled', 'enabled', 'legacy_source', 'draining', 'after_reboot',
+             'ruleset', 'no_reverse', 'custom_ttl']:
+    rules = configs[case]['route']['rules']
+    sniff_positions = [i for i, rule in enumerate(rules) if rule.get('action') == 'sniff']
+    assert len(sniff_positions) == 1, (case, rules)
+    sniff_index = sniff_positions[0]
+    assert rules[0] == {'inbound': 'dns-in', 'action': 'hijack-dns'}, case
+    first_pass = rules[1:sniff_index]
+    assert any(rule.get('action') == 'route' and rule.get('outbound') == 'direct-out'
+               for rule in first_pass), case
+    assert rules[sniff_index + 1:] == first_pass, case
+
+# Without recovered domains, retain upstream's early route-level sniffing.
+ordinary_rules = configs['ordinary']['route']['rules']
+assert ordinary_rules[1] == {'action': 'sniff'}
+assert sum(rule.get('action') == 'sniff' for rule in ordinary_rules) == 1
+assert any(rule.get('domain_suffix') == ['example.com'] for rule in ordinary_rules[2:])
+assert all('sniff' not in inbound and 'sniff_override_destination' not in inbound
+           for config in configs.values() for inbound in config['inbounds'])
+
 disabled = configs['disabled']
 assert not any(server['type'] == 'fakeip' for server in disabled['dns']['servers'])
 assert 'store_fakeip' not in disabled['experimental']['cache_file']
@@ -243,4 +267,4 @@ assert next(rule for rule in configs['ruleset']['dns']['rules'] if rule.get('ser
 for case in ['ipv6', 'range', 'matcher', 'changed_range', 'ttl_zero', 'ttl_high']:
     assert contents[case + '.error']
 print('PASS: disabled, enabled, draining, runtime-state loss, Fake-IP without reverse mapping, domain/suffix/regex/ruleset matching, unrestricted sources,')
-print('      runtime cache, rule ordering, nft syntax/ordering default/custom DNS reply TTL and six invalid configurations.')
+print('      runtime cache, rules-first/ordinary sniff ordering, nft syntax/ordering, default/custom DNS reply TTL and six invalid configurations.')

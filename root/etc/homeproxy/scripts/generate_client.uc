@@ -845,15 +845,18 @@ config.route = {
 		{
 			inbound: 'dns-in',
 			action: 'hijack-dns'
-		},
-		{
-			action: 'sniff'
 		}
 	],
 	rule_set: [],
 	auto_detect_interface: isEmpty(default_interface) ? true : null,
 	default_interface: default_interface
 };
+
+/* Preserve recovered domains for the first custom-rule pass before sniffing. */
+if (!custom_domain_routing)
+	push(config.route.rules, {
+		action: 'sniff'
+	});
 
 /* Routing rules */
 if (!isEmpty(main_node)) {
